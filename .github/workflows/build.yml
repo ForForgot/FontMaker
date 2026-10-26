@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DFONTMAKER_BUILD_WINDOWS=ON -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel 8
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Package
+        run: cmake --build build --config Release --target package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FontMaker-windows-x64
+          path: build/FontMaker-*.zip
+
+  core-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DFONTMAKER_BUILD_WINDOWS=OFF -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel 8
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

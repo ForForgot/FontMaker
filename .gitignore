@@ -1,0 +1,21 @@
+# Build trees
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+CMakeUserPresets.json
+
+# Test and packaging leftovers
+Testing/
+.fontmaker-test/
+*.png.tmp

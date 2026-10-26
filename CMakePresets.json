@@ -1,0 +1,114 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "vs2019-x64",
+      "displayName": "Visual Studio 2019 x64",
+      "generator": "Visual Studio 16 2019",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2019-x64",
+      "cacheVariables": {
+        "FONTMAKER_BUILD_WINDOWS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "vs2019-win32",
+      "displayName": "Visual Studio 2019 Win32",
+      "generator": "Visual Studio 16 2019",
+      "architecture": "Win32",
+      "binaryDir": "${sourceDir}/build/vs2019-win32",
+      "cacheVariables": {
+        "FONTMAKER_BUILD_WINDOWS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "vs2022-x64",
+      "displayName": "Visual Studio 2022 x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2022-x64",
+      "cacheVariables": {
+        "FONTMAKER_BUILD_WINDOWS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "mingw-debug",
+      "displayName": "MinGW-w64 Debug",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/mingw-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "g++",
+        "FONTMAKER_BUILD_WINDOWS": "ON",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "core-only",
+      "displayName": "Core library and tests only",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/core-only",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FONTMAKER_BUILD_WINDOWS": "OFF",
+        "BUILD_TESTING": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "vs2019-x64-release",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Release",
+      "jobs": 8
+    },
+    {
+      "name": "vs2019-x64-debug",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Debug",
+      "jobs": 8
+    },
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug",
+      "jobs": 8
+    },
+    {
+      "name": "core-only",
+      "configurePreset": "core-only",
+      "jobs": 8
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "vs2019-x64-release",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mingw-debug",
+      "configurePreset": "mingw-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "core-only",
+      "configurePreset": "core-only",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
