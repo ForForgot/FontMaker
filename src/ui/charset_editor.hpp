@@ -9,6 +9,8 @@
 
 #include <windows.h>
 
+#include "fontmaker/charset.hpp"
+
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,10 +31,14 @@ private:
     void onSave();
     void onAccept();
     void insertText(std::wstring_view text);
+    void updateCount();
+    [[nodiscard]] Charset currentCharset() const;
     [[nodiscard]] std::wstring editorText() const;
     void setEditorText(std::wstring_view text);
 
     std::string text_;
+    bool dedupe_ = true;
+    bool filterControls_ = true;
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
 };

@@ -1,6 +1,7 @@
 #include "gdi_rasterizer.hpp"
 
 #include "fontmaker/error.hpp"
+#include "fontmaker/packing.hpp"
 #include "fontmaker/utf.hpp"
 
 #include <algorithm>
@@ -36,18 +37,23 @@ GdiGlyphRasterizer::GdiGlyphRasterizer(
     FontDescriptor font, int width, int height, int offsetX, int offsetY)
     : fontDescriptor_(std::move(font))
 {
-    dc_ = CreateCompatibleDC(nullptr);
-    if (dc_ == nullptr) {
-        throwGdiError("CreateCompatibleDC");
+    try {
+        dc_ = CreateCompatibleDC(nullptr);
+        if (dc_ == nullptr) {
+            throwGdiError("CreateCompatibleDC");
+        }
+
+        SetBkMode(dc_, TRANSPARENT);
+        SetTextColor(dc_, RGB(255, 255, 255));
+        SetTextAlign(dc_, TA_LEFT | TA_TOP);
+        SetMapMode(dc_, MM_TEXT);
+
+        ensureFont();
+        setMetrics(width, height, offsetX, offsetY);
+    } catch (...) {
+        release();
+        throw;
     }
-
-    SetBkMode(dc_, TRANSPARENT);
-    SetTextColor(dc_, RGB(255, 255, 255));
-    SetTextAlign(dc_, TA_LEFT | TA_TOP);
-    SetMapMode(dc_, MM_TEXT);
-
-    ensureFont();
-    setMetrics(width, height, offsetX, offsetY);
 }
 
 GdiGlyphRasterizer::~GdiGlyphRasterizer()
@@ -79,8 +85,9 @@ void GdiGlyphRasterizer::release()
 
 void GdiGlyphRasterizer::ensureFont()
 {
-    if (fontDescriptor_.pixelHeight <= 0) {
-        throw Error("font pixel height must be positive");
+    if (fontDescriptor_.pixelHeight < kMinFontPixelHeight
+        || fontDescriptor_.pixelHeight > kMaxFontPixelHeight) {
+        throw Error("font pixel height is outside the supported range");
     }
 
     LOGFONTW logFont{};
@@ -109,11 +116,30 @@ void GdiGlyphRasterizer::ensureFont()
         DeleteObject(font_);
     }
     font_ = newFont;
+
+    wchar_t actualFace[LF_FACESIZE]{};
+    if (GetTextFaceW(dc_, LF_FACESIZE, actualFace) > 0) {
+        actualFamily_ = actualFace;
+    } else {
+        actualFamily_.clear();
+    }
+}
+
+bool GdiGlyphRasterizer::substituted() const noexcept
+{
+    if (actualFamily_.empty() || fontDescriptor_.family.empty()) {
+        return false;
+    }
+    return CompareStringOrdinal(
+               fontDescriptor_.family.c_str(), static_cast<int>(fontDescriptor_.family.size()),
+               actualFamily_.c_str(), static_cast<int>(actualFamily_.size()), TRUE)
+        != CSTR_EQUAL;
 }
 
 void GdiGlyphRasterizer::ensureBitmap(int width, int height)
 {
-    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+    if (width < kMinGlyphDimension || height < kMinGlyphDimension
+        || width > kMaxGlyphDimension || height > kMaxGlyphDimension) {
         throw Error("glyph cell size is outside the supported range");
     }
 
@@ -168,6 +194,10 @@ void GdiGlyphRasterizer::setFont(const FontDescriptor& font)
 
 void GdiGlyphRasterizer::setMetrics(int width, int height, int offsetX, int offsetY)
 {
+    if (offsetX < -kMaxGlyphOffset || offsetX > kMaxGlyphOffset
+        || offsetY < -kMaxGlyphOffset || offsetY > kMaxGlyphOffset) {
+        throw Error("glyph offset is outside the supported range");
+    }
     ensureBitmap(width, height);
     offsetX_ = offsetX;
     offsetY_ = offsetY;
@@ -184,7 +214,9 @@ Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
         throwGdiError("PatBlt");
     }
 
-    TextOutW(dc_, offsetX_, offsetY_, text.c_str(), static_cast<int>(text.size()));
+    if (!TextOutW(dc_, offsetX_, offsetY_, text.c_str(), static_cast<int>(text.size()))) {
+        throwGdiError("TextOutW");
+    }
 
     SIZE extent{};
     if (!GetTextExtentPoint32W(dc_, text.c_str(), static_cast<int>(text.size()), &extent)) {

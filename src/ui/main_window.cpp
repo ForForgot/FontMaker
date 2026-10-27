@@ -7,6 +7,9 @@
 #include "win32_utils.hpp"
 
 #include "fontmaker/error.hpp"
+#include "fontmaker/io.hpp"
+#include "fontmaker/metadata.hpp"
+#include "fontmaker/sha256.hpp"
 #include "fontmaker/utf.hpp"
 #include "fontmaker/version.hpp"
 #include "fontmaker/writer.hpp"
@@ -23,12 +26,12 @@
 namespace fontmaker::ui {
 namespace {
 
-constexpr int kMinFontSize = 1;
-constexpr int kMaxFontSize = 512;
-constexpr int kMinCellSize = 1;
-constexpr int kMaxCellSize = 4096;
-constexpr int kMinOffset = -2048;
-constexpr int kMaxOffset = 2048;
+constexpr int kMinFontSize = kMinFontPixelHeight;
+constexpr int kMaxFontSize = kMaxFontPixelHeight;
+constexpr int kMinCellSize = kMinGlyphDimension;
+constexpr int kMaxCellSize = kMaxGlyphDimension;
+constexpr int kMinOffset = -kMaxGlyphOffset;
+constexpr int kMaxOffset = kMaxGlyphOffset;
 
 std::wstring fileNameOf(const std::filesystem::path& path)
 {
@@ -94,7 +97,17 @@ INT_PTR CALLBACK MainWindow::dialogProc(HWND window, UINT message, WPARAM wParam
 bool MainWindow::onInitDialog()
 {
     initializing_ = true;
-    SetWindowTextW(window_, L"FontMaker 2.0 - 点阵字库生成工具");
+    SetWindowTextW(window_, L"FontMaker " FONTMAKER_VERSION_W L" - 点阵字库生成工具");
+
+    settings_ = loadSettings();
+    fontSize_ = std::clamp(settings_.fontSize, kMinFontSize, kMaxFontSize);
+    glyphWidth_ = std::clamp(settings_.width, kMinCellSize, kMaxCellSize);
+    glyphHeight_ = std::clamp(settings_.height, kMinCellSize, kMaxCellSize);
+    offsetX_ = std::clamp(settings_.offsetX, kMinOffset, kMaxOffset);
+    offsetY_ = std::clamp(settings_.offsetY, kMinOffset, kMaxOffset);
+    const int style = std::clamp(settings_.style, 0, 3);
+    fontWeight_ = (style == 1 || style == 3) ? FW_BOLD : FW_NORMAL;
+    fontItalic_ = (style == 2 || style == 3);
 
     const HICON icon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_APP));
     if (icon != nullptr) {
@@ -106,7 +119,8 @@ bool MainWindow::onInitDialog()
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"加粗"));
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"倾斜"));
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"加粗倾斜"));
-    SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_SETCURSEL, 0, 0);
+    SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_SETCURSEL,
+        static_cast<WPARAM>(style), 0);
 
     SendDlgItemMessageW(window_, IDC_SPIN_SIZE, UDM_SETRANGE32, kMinFontSize, kMaxFontSize);
     SendDlgItemMessageW(window_, IDC_SPIN_WIDTH, UDM_SETRANGE32, kMinCellSize, kMaxCellSize);
@@ -125,10 +139,16 @@ bool MainWindow::onInitDialog()
     SetDlgItemInt(window_, IDC_OFFSET_X, static_cast<UINT>(offsetX_), TRUE);
     SetDlgItemInt(window_, IDC_OFFSET_Y, static_cast<UINT>(offsetY_), TRUE);
 
-    CheckRadioButton(window_, IDC_SCAN_H, IDC_SCAN_V, IDC_SCAN_H);
-    CheckRadioButton(window_, IDC_MSB, IDC_LSB, IDC_MSB);
-    CheckRadioButton(window_, IDC_FIXED, IDC_VARIABLE, IDC_FIXED);
-    CheckRadioButton(window_, IDC_FORMAT_C, IDC_FORMAT_BIN, IDC_FORMAT_BIN);
+    CheckRadioButton(window_, IDC_SCAN_H, IDC_SCAN_V,
+        settings_.scanVertical ? IDC_SCAN_V : IDC_SCAN_H);
+    CheckRadioButton(window_, IDC_MSB, IDC_LSB,
+        settings_.lsbFirst ? IDC_LSB : IDC_MSB);
+    CheckRadioButton(window_, IDC_FIXED, IDC_VARIABLE,
+        settings_.variableWidth ? IDC_VARIABLE : IDC_FIXED);
+    CheckRadioButton(window_, IDC_FORMAT_C, IDC_FORMAT_BIN,
+        settings_.binaryOutput ? IDC_FORMAT_BIN : IDC_FORMAT_C);
+    CheckDlgButton(window_, IDC_METADATA,
+        settings_.metadata ? BST_CHECKED : BST_UNCHECKED);
 
     populateFonts();
 
@@ -137,6 +157,8 @@ bool MainWindow::onInitDialog()
     rasterizer_ = std::make_unique<win32::GdiGlyphRasterizer>(
         win32::FontDescriptor{fontFamily_, fontSize_, fontWeight_, fontItalic_},
         glyphWidth_, glyphHeight_, offsetX_, offsetY_);
+    updateFontWarning();
+    updateMetricsWarning();
 
     populateCharsets();
 
@@ -164,6 +186,7 @@ INT_PTR MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam)
         showAboutDialog(window_, instance_);
         return TRUE;
     case WM_CLOSE:
+        saveUiSettings();
         EndDialog(window_, IDCANCEL);
         return TRUE;
     default:
@@ -174,6 +197,7 @@ INT_PTR MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam)
 void MainWindow::onCommand(int controlId, int notification)
 {
     if (controlId == IDCANCEL) {
+        saveUiSettings();
         EndDialog(window_, IDCANCEL);
         return;
     }
@@ -378,13 +402,68 @@ void MainWindow::onSave()
                 }
             });
 
+        if (encoded.stats.emptyGlyphs == encoded.glyphs.size()) {
+            setStatus(L"所有字形为空，未保存");
+            win32::showError(window_, L"未保存",
+                L"所有字形都是空白的。请检查字体、字号、偏移和点阵尺寸。");
+            return;
+        }
+
         saveFont(*path, encoded, binary ? OutputFormat::Binary : OutputFormat::CSource);
+        std::filesystem::path metadataPath;
+        if (checked(IDC_METADATA)) {
+            metadataPath = path->parent_path() / (path->stem().wstring() + L".json");
+            const auto binaryPayload = toBinary(encoded);
+            FontMetadata metadata;
+            metadata.generatorVersion = FONTMAKER_VERSION_A;
+            metadata.requestedFont = win32::narrow(fontFamily_);
+            metadata.actualFont = win32::narrow(rasterizer_->actualFamily());
+            metadata.fontPixelHeight = fontSize_;
+            metadata.cellWidth = glyphWidth_;
+            metadata.cellHeight = glyphHeight_;
+            metadata.offsetX = offsetX_;
+            metadata.offsetY = offsetY_;
+            metadata.packing = packing;
+            metadata.glyphCount = encoded.glyphs.size();
+            metadata.emptyGlyphs = encoded.stats.emptyGlyphs;
+            metadata.edgeGlyphs = encoded.stats.edgeGlyphs;
+            metadata.recordSize = encoded.recordSize;
+            if (checked(IDC_STD)) {
+                const LRESULT selection = SendDlgItemMessageW(
+                    window_, IDC_CHARSET_LIST, CB_GETCURSEL, 0, 0);
+                if (selection != CB_ERR && static_cast<std::size_t>(selection) < charsetFiles_.size()) {
+                    metadata.charsetSource = pathToUtf8(
+                        charsetFiles_[static_cast<std::size_t>(selection)]);
+                }
+            } else {
+                metadata.charsetSource = "user-defined";
+            }
+            metadata.outputFormat = binary ? "bin" : "c";
+            metadata.payloadSha256 = sha256Hex(binaryPayload);
+            const std::string json = toJson(metadata);
+            writeBinaryFile(metadataPath, std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(json.data()), json.size()));
+        }
+
         setStatus(L"已保存 " + fileNameOf(*path) + L"（"
             + std::to_wstring(encoded.glyphs.size()) + L" 个字符）");
 
-        const std::wstring message = L"字库已保存：\n" + path->wstring()
+        std::wstring message = L"字库已保存：\n" + path->wstring()
             + L"\n\n字符数：" + std::to_wstring(encoded.glyphs.size())
             + L"\n每字符：" + std::to_wstring(encoded.recordSize) + L" 字节";
+        if (!metadataPath.empty()) {
+            message += L"\n元数据：" + metadataPath.wstring();
+        }
+        if (encoded.stats.emptyGlyphs > 0) {
+            message += L"\n空字形：" + std::to_wstring(encoded.stats.emptyGlyphs);
+        }
+        if (encoded.stats.edgeGlyphs > 0 && fontSize_ > glyphHeight_) {
+            message += L"\n贴边字形：" + std::to_wstring(encoded.stats.edgeGlyphs)
+                + L"（可能被裁剪）";
+        }
+        if (!fontWarning_.empty()) {
+            message += L"\n\n注意：" + fontWarning_;
+        }
         win32::showInfo(window_, L"完成", message);
     } catch (const std::exception& error) {
         setStatus(L"保存失败");
@@ -432,6 +511,8 @@ void MainWindow::onFontChanged()
     fontWeight_ = weight;
     fontItalic_ = italic;
     rasterizer_->setFont({fontFamily_, fontSize_, fontWeight_, fontItalic_});
+    updateFontWarning();
+    updateMetricsWarning();
     invalidatePreview();
 }
 
@@ -450,6 +531,7 @@ void MainWindow::onMetricsChanged()
     glyphWidth_ = width;
     glyphHeight_ = height;
     rasterizer_->setMetrics(glyphWidth_, glyphHeight_, offsetX_, offsetY_);
+    updateMetricsWarning();
     invalidatePreview();
 }
 
@@ -549,8 +631,13 @@ void MainWindow::populateFonts()
         return false;
     };
 
-    if (!select(L"Microsoft YaHei UI") && !select(L"Segoe UI") && !fontFamilies_.empty()) {
-        SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_SETCURSEL, 0, 0);
+    if ((!settings_.fontFamily.empty() && select(settings_.fontFamily.c_str()))
+        || select(L"Microsoft YaHei UI")
+        || select(L"Segoe UI")
+        || !fontFamilies_.empty()) {
+        if (SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_GETCURSEL, 0, 0) == CB_ERR) {
+            SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_SETCURSEL, 0, 0);
+        }
     }
 
     fontFamily_ = selectedFontFamily();
@@ -678,6 +765,30 @@ void MainWindow::updateIndexLabel()
         static_cast<LPARAM>(characterIndex_));
 }
 
+void MainWindow::saveUiSettings()
+{
+    if (window_ == nullptr) {
+        return;
+    }
+
+    const std::wstring family = selectedFontFamily();
+    if (!family.empty()) {
+        settings_.fontFamily = family;
+    }
+    settings_.fontSize = fontSize_;
+    settings_.width = glyphWidth_;
+    settings_.height = glyphHeight_;
+    settings_.offsetX = offsetX_;
+    settings_.offsetY = offsetY_;
+    settings_.style = selectedStyleIndex();
+    settings_.scanVertical = checked(IDC_SCAN_V);
+    settings_.lsbFirst = checked(IDC_LSB);
+    settings_.variableWidth = checked(IDC_VARIABLE);
+    settings_.binaryOutput = checked(IDC_FORMAT_BIN);
+    settings_.metadata = checked(IDC_METADATA);
+    saveSettings(settings_);
+}
+
 void MainWindow::invalidatePreview()
 {
     if (window_ != nullptr) {
@@ -685,11 +796,60 @@ void MainWindow::invalidatePreview()
     }
 }
 
+void MainWindow::updateFontWarning()
+{
+    if (rasterizer_ == nullptr) {
+        return;
+    }
+    if (rasterizer_->substituted()) {
+        fontWarning_ = L"字体被替换为 " + rasterizer_->actualFamily();
+    } else {
+        fontWarning_.clear();
+    }
+    renderStatus();
+}
+
+void MainWindow::updateMetricsWarning()
+{
+    if (fontSize_ > glyphHeight_) {
+        metricsWarning_ = L"字号大于点阵高度，字形可能被裁剪";
+    } else {
+        metricsWarning_.clear();
+    }
+    renderStatus();
+}
+
+void MainWindow::renderStatus()
+{
+    if (window_ == nullptr) {
+        return;
+    }
+
+    std::wstring text;
+    const auto append = [&](const std::wstring& part) {
+        if (part.empty()) {
+            return;
+        }
+        if (!text.empty()) {
+            text += L" | ";
+        }
+        text += part;
+    };
+    if (!fontWarning_.empty()) {
+        append(L"⚠ " + fontWarning_);
+    }
+    if (!metricsWarning_.empty()) {
+        append(L"⚠ " + metricsWarning_);
+    }
+    append(statusText_);
+    win32::setWindowText(window_, IDC_STATUS,
+        text.empty() ? L"就绪" : text);
+}
+
 void MainWindow::setStatus(const std::wstring& text)
 {
-    if (window_ != nullptr) {
-        win32::setWindowText(window_, IDC_STATUS, text);
-    }
+    statusText_ = text;
+    renderStatus();
 }
 
 void MainWindow::normalizeIntegerControl(

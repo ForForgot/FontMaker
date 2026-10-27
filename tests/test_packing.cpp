@@ -131,3 +131,36 @@ FM_TEST(encode_rejects_empty_charset)
     }
     FM_CHECK(threw);
 }
+
+FM_TEST(encode_counts_empty_and_edge_glyphs)
+{
+    FakeRasterizer emptyRasterizer(makeGlyph(8, 8, 8, {}));
+    const auto emptyFont = encodeFont(emptyRasterizer, Charset::fromUtf8("A"), {});
+    FM_CHECK_EQ(emptyFont.stats.emptyGlyphs, std::size_t{1});
+    FM_CHECK_EQ(emptyFont.stats.edgeGlyphs, std::size_t{0});
+
+    FakeRasterizer edgeRasterizer(makeGlyph(8, 8, 8, {{0, 0}}));
+    const auto edgeFont = encodeFont(edgeRasterizer, Charset::fromUtf8("A"), {});
+    FM_CHECK_EQ(edgeFont.stats.emptyGlyphs, std::size_t{0});
+    FM_CHECK_EQ(edgeFont.stats.edgeGlyphs, std::size_t{1});
+}
+
+class ThrowingRasterizer final : public GlyphRasterizer {
+public:
+    Glyph rasterize(char32_t) override
+    {
+        throw EncodeError("renderer failure");
+    }
+};
+
+FM_TEST(encode_propagates_rasterizer_exceptions)
+{
+    ThrowingRasterizer rasterizer;
+    bool threw = false;
+    try {
+        static_cast<void>(encodeFont(rasterizer, Charset::fromUtf8("A"), {}));
+    } catch (const EncodeError&) {
+        threw = true;
+    }
+    FM_CHECK(threw);
+}

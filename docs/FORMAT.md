@@ -12,7 +12,8 @@
 - 文件开头如果是 `FF FE`（UTF-16LE BOM），读取时跳过
 - 奇数字节会被拒绝
 - 按“UTF-16 码元”而不是“Unicode 文本”处理：每个 16 位单元保留一个输出记录
-- 代理项单元不配对，统一变为 `U+FFFD`；因此 `UNICODE.cst` 仍有 65536 个记录
+- 代理项单元不配对，统一变为 `U+FFFD`；来源会记录在字符串中，C 注释显示为 `(from surrogate U+D800)`
+- 因此 `UNICODE.cst` 仍有 65536 个记录
 - 如需完整支持 emoji 等补充平面字符，请使用“用户定义”的 UTF-8 文本
 
 例如 `ASCII.cst` 的前几个字节：
@@ -96,7 +97,8 @@ static const unsigned char bits[][32] =
 - 外层维度由字符集决定
 - 内层维度是固定记录长度
 - 每个 glyph 前有 `U+XXXX`（非 BMP 为 `U+XXXXX`）注释
-- 可打印字符会在注释中附带字符本身
+- 可打印字符会在注释中附带字符本身；单引号字符只显示码点，避免 `'''`
+- 由代理项替换来的 `U+FFFD` 会显示来源，例如 `// U+FFFD (from surrogate U+D800)`
 - 注释使用 UTF-8；文件无 BOM
 - C 数组不包含码点索引表；顺序由字符集决定
 
@@ -124,7 +126,22 @@ glyph[0] | glyph[1] | glyph[2] | ...
 96 × 32 = 3072 bytes
 ```
 
-## 7. 兼容性说明
+## 7. JSON 元数据 sidecar
+
+`--metadata <file>` 或 GUI 的“JSON 元数据”会生成独立 sidecar，不改变 C/BIN 数据布局。字段包括：
+
+- `generator` / `version`
+- `requestedFont` / `actualFont`（GDI 实际选中的字体）
+- `fontPixelHeight` / `cellWidth` / `cellHeight` / offsets
+- `scan` / `bitOrder` / `variableWidth`
+- `glyphCount` / `emptyGlyphs` / `edgeGlyphs`
+- `recordSize`
+- `charsetSource` / `outputFormat`
+- `payloadSha256`：**BIN payload** 的 SHA-256，即使输出格式为 C 也按 BIN 计算
+
+该文件适合固件构建脚本做参数校验和可复现性记录。
+
+## 8. 兼容性说明
 
 2.0 保持以下语义不变：
 

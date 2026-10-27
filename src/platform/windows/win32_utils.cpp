@@ -76,13 +76,16 @@ std::wstring widen(std::string_view text)
         return {};
     }
     const int length = MultiByteToWideChar(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+        CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
     if (length <= 0) {
-        throw Error("cannot convert UTF-8 text to UTF-16");
+        throw Error("cannot convert UTF-8 text to UTF-16: invalid input");
     }
     std::wstring result(static_cast<std::size_t>(length), L'\0');
-    MultiByteToWideChar(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), result.data(), length);
+    if (MultiByteToWideChar(
+            CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+            result.data(), length) <= 0) {
+        throw Error("cannot convert UTF-8 text to UTF-16");
+    }
     return result;
 }
 
@@ -92,13 +95,17 @@ std::string narrow(std::wstring_view text)
         return {};
     }
     const int length = WideCharToMultiByte(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+        nullptr, 0, nullptr, nullptr);
     if (length <= 0) {
-        throw Error("cannot convert UTF-16 text to UTF-8");
+        throw Error("cannot convert UTF-16 text to UTF-8: unpaired surrogate");
     }
     std::string result(static_cast<std::size_t>(length), '\0');
-    WideCharToMultiByte(
-        CP_UTF8, 0, text.data(), static_cast<int>(text.size()), result.data(), length, nullptr, nullptr);
+    if (WideCharToMultiByte(
+            CP_UTF8, WC_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+            result.data(), length, nullptr, nullptr) <= 0) {
+        throw Error("cannot convert UTF-16 text to UTF-8");
+    }
     return result;
 }
 

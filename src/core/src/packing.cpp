@@ -14,7 +14,7 @@ void validateCell(int width, int height)
     if (width <= 0 || height <= 0) {
         throw EncodeError("glyph cell dimensions must be positive");
     }
-    if (width > 4096 || height > 4096) {
+    if (width > kMaxGlyphDimension || height > kMaxGlyphDimension) {
         throw EncodeError("glyph cell dimensions are unreasonably large");
     }
 }
@@ -24,6 +24,30 @@ std::uint8_t bitMask(BitOrder order, int index) noexcept
     return order == BitOrder::MsbFirst
         ? static_cast<std::uint8_t>(0x80u >> index)
         : static_cast<std::uint8_t>(1u << index);
+}
+
+bool glyphIsEmpty(const Glyph& glyph)
+{
+    return std::all_of(glyph.coverage.begin(), glyph.coverage.end(),
+        [](std::uint8_t value) { return value == 0; });
+}
+
+bool glyphTouchesEdge(const Glyph& glyph)
+{
+    if (glyphIsEmpty(glyph)) {
+        return false;
+    }
+    for (int x = 0; x < glyph.width; ++x) {
+        if (glyph.pixel(x, 0) || glyph.pixel(x, glyph.height - 1)) {
+            return true;
+        }
+    }
+    for (int y = 0; y < glyph.height; ++y) {
+        if (glyph.pixel(0, y) || glyph.pixel(glyph.width - 1, y)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -122,11 +146,21 @@ EncodedFont encodeFont(
             result.width = glyph.width;
             result.height = glyph.height;
             result.recordSize = static_cast<int>(recordSizeBytes(glyph.width, glyph.height, options));
+            const std::size_t totalBytes = static_cast<std::size_t>(result.recordSize) * charset.size();
+            if (totalBytes > kMaxOutputBytes) {
+                throw EncodeError("output would exceed the 256 MiB safety limit");
+            }
         } else if (glyph.width != result.width || glyph.height != result.height) {
             throw EncodeError("rasterizer returned inconsistent glyph dimensions");
         }
 
-        result.glyphs.push_back({codepoint, packGlyph(glyph, options)});
+        if (glyphIsEmpty(glyph)) {
+            ++result.stats.emptyGlyphs;
+        } else if (glyphTouchesEdge(glyph)) {
+            ++result.stats.edgeGlyphs;
+        }
+
+        result.glyphs.push_back({codepoint, packGlyph(glyph, options), charset.note(index)});
         if (progress) {
             progress(index + 1, charset.size());
         }

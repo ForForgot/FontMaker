@@ -28,8 +28,9 @@
 
 - `charset`：UTF-8 / UTF-16LE 解码，`.cst` 文件加载
 - `glyph`：`Glyph` 和 `GlyphRasterizer` 接口
-- `packing`：扫描、位序、可变宽度前缀
+- `packing`：扫描、位序、可变宽度前缀、空/贴边统计和输出上限
 - `writer`：C 源码和 BIN 输出
+- `metadata` / `sha256`：可复现性 sidecar 和 payload 哈希
 - `io` / `utf` / `error`：基础设施
 
 核心只依赖 C++ 标准库。`tests/` 用假渲染器测试取模和输出，不需要 Windows/GDI。
@@ -43,8 +44,9 @@
 ### ui
 
 - `MainWindow`：主对话框、状态、控件事件、预览、导出
-- `CharsetEditorDialog`：自定义码表编辑
+- `CharsetEditorDialog`：自定义码表编辑、去重、控制字符过滤和实时计数
 - `AboutDialog`：版本和署名
+- `ui_settings`：用户级设置持久化（`HKCU\Software\FontMaker\2.0`）
 - `resources.rc`：纯 Win32 对话框资源和 manifest
 
 ### cli
@@ -74,11 +76,12 @@ EncodedFont { recordSize, glyphs[] }
 
 ## 所有权和错误处理
 
-- GDI 对象由 `GdiGlyphRasterizer` 的 RAII 析构函数释放
+- GDI 对象由 `GdiGlyphRasterizer` 的 RAII 析构函数释放；构造失败会先 `release()` 再重新抛出
 - `HBITMAP` / `HFONT` 在替换时先选回旧对象再删除
 - 核心使用异常报告错误；UI 在对话框过程和保存路径中捕获并显示
 - 字符集加载失败会清空当前字符集，而不是保留半加载状态
-- 文件对话框返回完整路径，保存使用 `std::ofstream` 的二进制模式
+- 文件对话框返回完整路径；文件写入使用同目录临时文件 + 原子替换
+- 字体被 GDI 替换、字号超过点阵高度、全空输出都会告警；字号超过高度时同时报告贴边字形，CLI 可用 `--strict-font` / `--allow-empty` 控制
 
 ## 初始化顺序
 
@@ -105,10 +108,11 @@ EncodedFont { recordSize, glyphs[] }
 CTest 运行 `fontmaker_tests`：
 
 - UTF-8/UTF-16 边界和代理对
-- `.cst` BOM、奇数字节、临时文件往返
-- 横/纵扫描、MSB/LSB、补齐位
-- 可变宽度大端前缀
-- C 输出结构和 BIN 拼接
-- 渲染器进度回调和异常路径
+- `.cst` BOM、奇数字节、代理项来源和临时文件往返
+- 字符清理（去重、控制字符）和原子覆盖写
+- 横/纵扫描、MSB/LSB、补齐位、空/贴边统计
+- 可变宽度大端前缀和 SHA-256/JSON 元数据
+- C 输出结构、单引号注释和 BIN 拼接
+- 渲染器进度回调、异常路径和全空输出保护
 
 UI 通过手工冒烟验证（启动、预览、字符切换、用户码表、关于框）；GDI 输出依赖系统字体，因此不做跨机器逐字节断言。

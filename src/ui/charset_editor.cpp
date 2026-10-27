@@ -76,6 +76,8 @@ INT_PTR CALLBACK CharsetEditorDialog::dialogProc(
 bool CharsetEditorDialog::onInitDialog()
 {
     SetWindowTextW(window_, L"自定义码表");
+    CheckDlgButton(window_, IDC_DEDUPE, dedupe_ ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(window_, IDC_FILTER_CONTROLS, filterControls_ ? BST_CHECKED : BST_UNCHECKED);
     setEditorText(win32::widen(text_));
     SetFocus(GetDlgItem(window_, IDC_TABLE_TEXT));
     return false;
@@ -104,6 +106,19 @@ INT_PTR CharsetEditorDialog::handleMessage(UINT message, WPARAM wParam, LPARAM /
         case IDC_INSERT_LETTERS:
             insertText(L"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
             return TRUE;
+        case IDC_TABLE_TEXT:
+            if (HIWORD(wParam) == EN_CHANGE) {
+                updateCount();
+            }
+            return TRUE;
+        case IDC_DEDUPE:
+            dedupe_ = IsDlgButtonChecked(window_, IDC_DEDUPE) == BST_CHECKED;
+            updateCount();
+            return TRUE;
+        case IDC_FILTER_CONTROLS:
+            filterControls_ = IsDlgButtonChecked(window_, IDC_FILTER_CONTROLS) == BST_CHECKED;
+            updateCount();
+            return TRUE;
         default:
             break;
         }
@@ -128,6 +143,7 @@ void CharsetEditorDialog::onLoad()
         const Charset charset = Charset::loadUtf8File(*path);
         text_ = charset.toUtf8();
         setEditorText(win32::widen(text_));
+        updateCount();
         SetFocus(GetDlgItem(window_, IDC_TABLE_TEXT));
     } catch (const std::exception& error) {
         win32::showError(window_, L"载入失败", win32::widen(error.what()));
@@ -136,26 +152,19 @@ void CharsetEditorDialog::onLoad()
 
 void CharsetEditorDialog::onSave()
 {
-    const std::wstring text = editorText();
-    if (text.empty()) {
-        win32::showError(window_, L"无法保存", L"码表不能为空。");
-        return;
-    }
-
-    std::string utf8;
     try {
-        utf8 = Charset::fromUtf8(win32::narrow(text)).toUtf8();
-    } catch (const std::exception& error) {
-        win32::showError(window_, L"无法保存", win32::widen(error.what()));
-        return;
-    }
+        const Charset cleaned = currentCharset();
+        if (cleaned.empty()) {
+            win32::showError(window_, L"无法保存", L"清理后的码表不能为空。");
+            return;
+        }
 
-    const auto path = win32::saveFileDialog(window_, kTextFilter, L"保存 UTF-8 码表", L"txt");
-    if (!path) {
-        return;
-    }
+        const std::string utf8 = cleaned.toUtf8();
+        const auto path = win32::saveFileDialog(window_, kTextFilter, L"保存 UTF-8 码表", L"txt");
+        if (!path) {
+            return;
+        }
 
-    try {
         writeBinaryFile(*path, std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t*>(utf8.data()), utf8.size()));
         win32::showInfo(window_, L"保存成功", L"码表已保存为 UTF-8 文本。");
@@ -166,21 +175,38 @@ void CharsetEditorDialog::onSave()
 
 void CharsetEditorDialog::onAccept()
 {
-    const std::wstring text = editorText();
-    if (text.empty()) {
-        win32::showError(window_, L"码表为空", L"码表不能为空，请至少输入一个字符。");
-        SetFocus(GetDlgItem(window_, IDC_TABLE_TEXT));
-        return;
-    }
-
     try {
-        const std::string utf8 = win32::narrow(text);
-        static_cast<void>(Charset::fromUtf8(utf8));
-        text_ = utf8;
+        const Charset cleaned = currentCharset();
+        if (cleaned.empty()) {
+            win32::showError(window_, L"码表为空", L"清理后的码表不能为空，请至少输入一个非控制字符。");
+            SetFocus(GetDlgItem(window_, IDC_TABLE_TEXT));
+            return;
+        }
+        text_ = cleaned.toUtf8();
         EndDialog(window_, IDOK);
     } catch (const std::exception& error) {
         win32::showError(window_, L"码表无效", win32::widen(error.what()));
         SetFocus(GetDlgItem(window_, IDC_TABLE_TEXT));
+    }
+}
+
+Charset CharsetEditorDialog::currentCharset() const
+{
+    Charset charset = Charset::fromUtf8(win32::narrow(editorText()));
+    CharsetCleanup cleanup;
+    cleanup.removeControls = filterControls_;
+    cleanup.dedupe = dedupe_;
+    return charset.cleaned(cleanup);
+}
+
+void CharsetEditorDialog::updateCount()
+{
+    try {
+        const std::size_t count = currentCharset().size();
+        win32::setWindowText(window_, IDC_CHAR_COUNT,
+            std::to_wstring(count) + L" 个字符");
+    } catch (const std::exception&) {
+        win32::setWindowText(window_, IDC_CHAR_COUNT, L"码表无效");
     }
 }
 
@@ -192,6 +218,7 @@ void CharsetEditorDialog::insertText(std::wstring_view text)
     }
     SendMessageW(edit, EM_REPLACESEL, TRUE,
         reinterpret_cast<LPARAM>(std::wstring(text).c_str()));
+    updateCount();
     SetFocus(edit);
 }
 
@@ -214,6 +241,7 @@ std::wstring CharsetEditorDialog::editorText() const
 void CharsetEditorDialog::setEditorText(std::wstring_view text)
 {
     SetDlgItemTextW(window_, IDC_TABLE_TEXT, std::wstring(text).c_str());
+    updateCount();
 }
 
 } // namespace fontmaker::ui

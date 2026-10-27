@@ -2,11 +2,53 @@
 
 #include "fontmaker/error.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <string>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace fontmaker {
+namespace {
+
+void writeTemporaryFile(const std::filesystem::path& path, std::span<const std::uint8_t> bytes)
+{
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        throw Error("cannot open '" + pathToUtf8(path) + "' for writing");
+    }
+    if (!bytes.empty()) {
+        stream.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+    }
+    stream.flush();
+    stream.close();
+    if (!stream) {
+        throw Error("cannot write '" + pathToUtf8(path) + "'");
+    }
+}
+
+std::filesystem::path makeTemporaryPath(const std::filesystem::path& target)
+{
+    static std::atomic<unsigned long long> counter{0};
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    std::filesystem::path name = target.filename();
+    name += std::filesystem::path(".tmp." + std::to_string(stamp) + "."
+        + std::to_string(counter++));
+    return target.parent_path() / name;
+}
+
+} // namespace
 
 std::string pathToUtf8(const std::filesystem::path& path)
 {
@@ -43,18 +85,33 @@ std::string readTextFile(const std::filesystem::path& path)
 
 void writeBinaryFile(const std::filesystem::path& path, std::span<const std::uint8_t> bytes)
 {
-    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-    if (!stream) {
-        throw Error("cannot open '" + pathToUtf8(path) + "' for writing");
+    const std::filesystem::path temporary = makeTemporaryPath(path);
+    try {
+        writeTemporaryFile(temporary, bytes);
+    } catch (...) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        throw;
     }
-    if (!bytes.empty()) {
-        stream.write(reinterpret_cast<const char*>(bytes.data()),
-            static_cast<std::streamsize>(bytes.size()));
+
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), path.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        const DWORD error = GetLastError();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        throw Error("cannot replace '" + pathToUtf8(path) + "' (Windows error "
+            + std::to_string(static_cast<unsigned long>(error)) + ")");
     }
-    stream.flush();
-    if (!stream) {
-        throw Error("cannot write '" + pathToUtf8(path) + "'");
+#else
+    std::error_code error;
+    std::filesystem::rename(temporary, path, error);
+    if (error) {
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        throw Error("cannot replace '" + pathToUtf8(path) + "': " + error.message());
     }
+#endif
 }
 
 } // namespace fontmaker

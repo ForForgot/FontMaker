@@ -62,6 +62,8 @@ FM_TEST(cst_reader_handles_bom_and_surrogate_units)
     FM_CHECK_EQ(charset[0], U'A');
     FM_CHECK_EQ(charset[1], U'\uFFFD');
     FM_CHECK_EQ(charset[2], U'\uFFFD');
+    FM_CHECK(charset.note(1).find("U+D83D") != std::string::npos);
+    FM_CHECK(charset.note(2).find("U+DE00") != std::string::npos);
 }
 
 FM_TEST(cst_reader_replaces_unpaired_surrogates)
@@ -72,6 +74,40 @@ FM_TEST(cst_reader_replaces_unpaired_surrogates)
     FM_CHECK_EQ(charset[0], U'\uFFFD');
     FM_CHECK_EQ(charset[1], U'A');
     FM_CHECK_EQ(charset[2], U'\uFFFD');
+}
+
+FM_TEST(charset_cleanup_removes_controls_and_duplicates)
+{
+    const Charset original = Charset::fromUtf8("AAB\r\nC");
+    CharsetCleanup cleanup;
+    cleanup.removeControls = true;
+    cleanup.dedupe = true;
+    const Charset cleaned = original.cleaned(cleanup);
+    FM_CHECK_EQ(cleaned.size(), std::size_t{3});
+    FM_CHECK_EQ(cleaned[0], U'A');
+    FM_CHECK_EQ(cleaned[1], U'B');
+    FM_CHECK_EQ(cleaned[2], U'C');
+}
+
+FM_TEST(charset_cleanup_preserves_input_by_default)
+{
+    const Charset original = Charset::fromUtf8("AA\r\n");
+    const Charset cleaned = original.cleaned({});
+    FM_CHECK_EQ(cleaned.size(), std::size_t{4});
+}
+
+FM_TEST(atomic_write_replaces_existing_file)
+{
+    TempFile file(temporaryPath(".bin"));
+    const std::vector<std::uint8_t> first = {1, 2, 3};
+    const std::vector<std::uint8_t> second = {4, 5};
+    writeBinaryFile(file.path, first);
+    writeBinaryFile(file.path, second);
+
+    const auto bytes = readBinaryFile(file.path);
+    FM_CHECK_EQ(bytes.size(), std::size_t{2});
+    FM_CHECK_EQ(bytes[0], std::uint8_t{4});
+    FM_CHECK_EQ(bytes[1], std::uint8_t{5});
 }
 
 FM_TEST(cst_reader_rejects_odd_length)

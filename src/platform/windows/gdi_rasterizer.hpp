@@ -47,6 +47,11 @@ public:
     [[nodiscard]] int width() const noexcept { return width_; }
     [[nodiscard]] int height() const noexcept { return height_; }
 
+    /// Face name that GDI actually selected. May differ from the requested
+    /// family when the font is missing (GDI silently substitutes).
+    [[nodiscard]] const std::wstring& actualFamily() const noexcept { return actualFamily_; }
+    [[nodiscard]] bool substituted() const noexcept;
+
 private:
     void ensureFont();
     void ensureBitmap(int width, int height);
@@ -63,6 +68,7 @@ private:
     int height_ = 0;
     int offsetX_ = 0;
     int offsetY_ = 0;
+    std::wstring actualFamily_;
     FontDescriptor fontDescriptor_;
 };
 

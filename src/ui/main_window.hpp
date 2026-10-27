@@ -13,6 +13,7 @@
 #include "fontmaker/packing.hpp"
 
 #include "gdi_rasterizer.hpp"
+#include "ui_settings.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -54,6 +55,10 @@ private:
     void loadSelectedCharset();
     void applyCustomCharset();
     void updateIndexLabel();
+    void updateFontWarning();
+    void updateMetricsWarning();
+    void renderStatus();
+    void saveUiSettings();
     void invalidatePreview();
     void setStatus(const std::wstring& text);
     void normalizeIntegerControl(int controlId, int minimum, int maximum, bool signedValue);
@@ -85,6 +90,10 @@ private:
     std::filesystem::path charsetDirectory_;
     std::vector<std::filesystem::path> charsetFiles_;
     int characterIndex_ = 0;
+    std::wstring statusText_ = L"就绪";
+    std::wstring fontWarning_;
+    std::wstring metricsWarning_;
+    UiSettings settings_;
 };
 
 } // namespace fontmaker::ui

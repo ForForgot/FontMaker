@@ -19,8 +19,8 @@ EncodedFont sampleFont()
     font.recordSize = 2;
     font.options = {};
     font.glyphs = {
-        {U'0', {0x81, 0x40}},
-        {U'\n', {0x00, 0x00}},
+        {U'0', {0x81, 0x40}, {}},
+        {U'\n', {0x00, 0x00}, {}},
     };
     return font;
 }
@@ -29,14 +29,27 @@ EncodedFont sampleFont()
 
 FM_TEST(c_source_layout)
 {
-    const auto source = toCSource(sampleFont());
+    auto font = sampleFont();
+    font.glyphs.push_back({U'\'', {0x00, 0x00}, "from surrogate U+D800"});
+    const auto source = toCSource(font);
     FM_CHECK(source.find("static const unsigned char bits[][2] =\n{") != std::string::npos);
     FM_CHECK(source.find("{ // U+0030 '0'") != std::string::npos);
     FM_CHECK(source.find("{ // U+000A\n") != std::string::npos);
+    FM_CHECK(source.find("{ // U+0027 (from surrogate U+D800)\n") != std::string::npos);
+    FM_CHECK(source.find("'''") == std::string::npos);
     FM_CHECK(source.find("0x81, 0x40,") != std::string::npos);
     FM_CHECK(source.find("0x00, 0x00,") != std::string::npos);
     FM_CHECK(source.find("0x40,\n    },") != std::string::npos);
     FM_CHECK(source.back() == '\n');
+}
+
+FM_TEST(c_source_quote_comment_is_clean)
+{
+    auto font = sampleFont();
+    font.glyphs = {{U'\'', {0x00, 0x00}, {}}};
+    const auto source = toCSource(font);
+    FM_CHECK(source.find("{ // U+0027\n") != std::string::npos);
+    FM_CHECK(source.find("'''") == std::string::npos);
 }
 
 FM_TEST(c_source_custom_array_name)

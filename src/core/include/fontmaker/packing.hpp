@@ -3,12 +3,20 @@
 #include "fontmaker/charset.hpp"
 #include "fontmaker/glyph.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
 
 namespace fontmaker {
+
+inline constexpr int kMinGlyphDimension = 1;
+inline constexpr int kMaxGlyphDimension = 4096;
+inline constexpr int kMinFontPixelHeight = 1;
+inline constexpr int kMaxFontPixelHeight = 1024;
+inline constexpr int kMaxGlyphOffset = 4096;
+inline constexpr std::size_t kMaxOutputBytes = 256u * 1024u * 1024u;
 
 enum class ScanDirection {
     Horizontal,
@@ -40,6 +48,12 @@ struct PackOptions {
 struct EncodedGlyph {
     char32_t codepoint = 0;
     std::vector<std::uint8_t> bytes;
+    std::string note;
+};
+
+struct EncodeStats {
+    std::size_t emptyGlyphs = 0;
+    std::size_t edgeGlyphs = 0;
 };
 
 struct EncodedFont {
@@ -47,6 +61,7 @@ struct EncodedFont {
     int height = 0;
     int recordSize = 0;
     PackOptions options;
+    EncodeStats stats;
     std::vector<EncodedGlyph> glyphs;
 };
 

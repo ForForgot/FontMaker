@@ -8,19 +8,28 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(FONTMAKER_BUILD_WINDOWS "Build the Win32 GUI and command-line tools" ${WIN32})
 option(FONTMAKER_BUILD_TESTS "Build the core unit tests" ON)
+option(FONTMAKER_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 function(fontmaker_enable_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
+        if(FONTMAKER_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        if(FONTMAKER_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
     endif()
 endfunction()
 
 add_library(fontmaker_core STATIC
     src/core/src/charset.cpp
     src/core/src/io.cpp
+    src/core/src/metadata.cpp
     src/core/src/packing.cpp
+    src/core/src/sha256.cpp
     src/core/src/utf.cpp
     src/core/src/writer.cpp
 )
@@ -89,13 +98,14 @@ if(WIN32 AND FONTMAKER_BUILD_WINDOWS)
         src/ui/app.cpp
         src/ui/charset_editor.cpp
         src/ui/main_window.cpp
+        src/ui/ui_settings.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/resources.rc
     )
     target_include_directories(fontmaker PRIVATE
         src/ui
         ${CMAKE_CURRENT_BINARY_DIR}
     )
-    target_link_libraries(fontmaker PRIVATE FontMaker::Win32 comctl32)
+    target_link_libraries(fontmaker PRIVATE FontMaker::Win32 comctl32 advapi32)
     set_target_properties(fontmaker PROPERTIES
         OUTPUT_NAME "FontMaker"
         VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:fontmaker>"
@@ -142,6 +152,7 @@ if(FONTMAKER_BUILD_TESTS AND BUILD_TESTING)
     add_executable(fontmaker_tests
         tests/test_charset.cpp
         tests/test_main.cpp
+        tests/test_metadata.cpp
         tests/test_packing.cpp
         tests/test_utf.cpp
         tests/test_writer.cpp
@@ -162,6 +173,17 @@ if(FONTMAKER_BUILD_TESTS AND BUILD_TESTING)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli.cmake
         )
         set_tests_properties(fontmaker_cli_ascii PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+
+        add_test(NAME fontmaker_cli_empty_guard
+            COMMAND ${CMAKE_COMMAND}
+                -DCLI=$<TARGET_FILE:fontmaker_cli>
+                -DCHARSET=${CMAKE_CURRENT_SOURCE_DIR}/assets/charset/ASCII.cst
+                -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/cli-empty-test.bin
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cli_empty.cmake
+        )
+        set_tests_properties(fontmaker_cli_empty_guard PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
     endif()

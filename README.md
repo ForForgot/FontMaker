@@ -13,6 +13,10 @@ FontMaker 是一个 Windows 点阵字库生成工具。它把系统字体渲染�
 - 原生 Win32 + GDI，不再依赖 MFC
 - 核心库与 UI 分离，带纯逻辑单元测试
 - 提供命令行工具，便于脚本化生成
+- 字体替换、空字形、贴边裁剪、超大输出等风险会显式告警
+- 自定义码表支持去重、控制字符过滤和实时字符数
+- 原子写文件；附带可选的 JSON 元数据 sidecar
+- 记住上次使用的字体、字号、位序和格式
 - 自动把 `charset/*.cst` 复制到可执行文件旁
 
 ## 构建
@@ -66,9 +70,12 @@ x64 构建会生成 `FontMaker-2.0.0-win64.zip`（Win32 构建为 `win32`）。
 
 1. 选择字体、字号和字形。
 2. 选择标准字库，或点击“用户定义”→“编辑码表”输入字符。
-3. 设置点阵宽高和偏移，观察左侧预览。
+3. 设置点阵宽高和偏移，观察左侧预览。若字号大于点阵高度，状态栏会提示可能裁剪。
 4. 选择扫描方式、比特顺序、字符宽度和文件格式。
-5. 点击“保存字库”。
+5. 可选勾选“JSON 元数据”，会在输出字库旁生成同名 `.json` 文件。
+6. 点击“保存字库”。
+
+如果 GDI 替换了请求的字体、或所有字形都为空，保存流程会显式提示而不是静默成功。设置会在关闭时保存到 `HKCU\Software\FontMaker\2.0`。
 
 点击“关于”查看版本信息。
 
@@ -88,13 +95,25 @@ x64 构建会生成 `FontMaker-2.0.0-win64.zip`（Win32 构建为 `win32`）。
   --charset charset\ASCII.cst `
   --output out\ascii.c --format c
 
-# 生成可变宽度 BIN（纵向、LSB）
+# 生成可变宽度 BIN（纵向、LSB），并写 JSON 元数据
 .\fontmaker_cli.exe `
   --font "Microsoft YaHei UI" --size 16 --width 16 --height 16 `
   --charset charset\GB2312.cst `
   --output out\gb2312.bin --format bin `
-  --scan v --bit-order lsb --variable
+  --scan v --bit-order lsb --variable `
+  --metadata out\gb2312.json --stats
+
+# 清理重复字符和控制字符；字体被 GDI 替换时直接失败
+.\fontmaker_cli.exe `
+  --font "Definitely Not A Real Font" `
+  --charset charset\ASCII.cst --output out\ascii.c `
+  --dedupe --filter-controls --strict-font
 ```
+
+- `--metadata <file>` 记录实际字体名、尺寸、扫描/位序、字符数、空/贴边统计和 BIN payload 的 SHA-256。
+- `--stats` 输出空字形和贴边字形数量。
+- `--strict-font` 在 GDI 替换字体时返回失败；否则只打印 warning。
+- 输出目录不存在时会自动创建。
 
 运行 `fontmaker_cli.exe --help` 查看完整参数。
 
@@ -132,6 +151,32 @@ static const unsigned char bits[][32] =
 
 所有字符记录按字符集顺序首尾相接，没有文件头、字符数或码表。嵌入式端必须知道字符集顺序和取模参数。
 
+### JSON 元数据
+
+元数据是独立 sidecar，不改变 C/BIN 布局。示例字段：
+
+```json
+{
+  "generator": "FontMaker",
+  "version": "2.0.0",
+  "requestedFont": "Microsoft YaHei UI",
+  "actualFont": "Microsoft YaHei UI",
+  "fontPixelHeight": 16,
+  "cellWidth": 16,
+  "cellHeight": 16,
+  "scan": "horizontal",
+  "bitOrder": "MSB first",
+  "variableWidth": false,
+  "glyphCount": 96,
+  "emptyGlyphs": 1,
+  "edgeGlyphs": 42,
+  "recordSize": 32,
+  "payloadSha256": "..."
+}
+```
+
+`payloadSha256` 始终对 BIN payload 计算，即使输出格式是 C。
+
 ## 字符集
 
 `.cst` 是原始 UTF-16LE 码元序列，无文件头、无结束符；文件顺序就是输出顺序。它按“16 位码元”处理：代理项不配对，统一替换为 `U+FFFD`，因此 `UNICODE.cst` 仍有 65536 条记录。需要 emoji 等补充平面字符时请使用“用户定义”的 UTF-8 文本。仓库自带：
@@ -145,7 +190,13 @@ static const unsigned char bits[][32] =
 | `UNICODE.cst` | 65536 |
 | `ISO8859-1.cst` / `IBM860.cst` / `KOI8-R.cst` | 256 |
 
-也可以用“用户定义”直接输入 UTF-8 文本，程序内部转换为 Unicode 码点。
+也可以用“用户定义”直接输入 UTF-8 文本，程序内部转换为 Unicode 码点。编辑器默认开启“去重”和“过滤控制字符”，因此回车不会被误生成为空白字形；实时显示清理后的字符数。CLI 对应选项为 `--dedupe` 和 `--filter-controls`。
+
+如果使用 `UNICODE.cst`，被替换的代理项会在 C 注释中保留来源，例如：
+
+```c
+{ // U+FFFD (from surrogate U+D800)
+```
 
 ## 工程结构
 
@@ -177,9 +228,11 @@ docs/                   格式和架构文档
 
 - GUI 和字体渲染仅支持 Windows；核心库可用于其他平台的测试和后续移植
 - 使用 GDI 的简单 `TextOutW`，不处理阿拉伯文/印度语系等复杂文字整形，也不渲染彩色 emoji
-- 导出在 UI 线程同步执行；超大字符集（如 `UNICODE.cst`）可能需要数秒
+- 导出仍在 UI 线程同步执行；超大字符集（如 `UNICODE.cst`）可能需要数秒，暂不支持取消
+- 还没有字形网格浏览器；空字形和裁剪通过统计/状态栏提示
 - “可变宽度”仍保存完整矩阵，只额外保存 advance width
 - C 数组不含码表索引，运行时需要按字符集顺序查找
+- UI 文案目前为中文硬编码，未做 i18n；DPI 为 system-aware
 
 ## 开发文档
 

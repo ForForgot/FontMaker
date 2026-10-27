@@ -46,7 +46,7 @@ std::string codepointLabel(char32_t codepoint)
     return stream.str();
 }
 
-void validateFont(const EncodedFont& font, std::size_t bytesPerLine)
+void validateFont(const EncodedFont& font)
 {
     if (font.glyphs.empty()) {
         throw EncodeError("cannot write an empty font");
@@ -57,13 +57,17 @@ void validateFont(const EncodedFont& font, std::size_t bytesPerLine)
     if (font.recordSize != static_cast<int>(recordSizeBytes(font.width, font.height, font.options))) {
         throw EncodeError("font record size does not match its dimensions");
     }
-    if (bytesPerLine == 0) {
-        throw EncodeError("bytesPerLine must be greater than zero");
-    }
     for (const auto& glyph : font.glyphs) {
         if (glyph.bytes.size() != static_cast<std::size_t>(font.recordSize)) {
             throw EncodeError("glyph record size does not match the font metadata");
         }
+    }
+}
+
+void validateWriterOptions(const WriterOptions& options)
+{
+    if (options.bytesPerLine == 0) {
+        throw EncodeError("bytesPerLine must be greater than zero");
     }
 }
 
@@ -74,7 +78,8 @@ std::string toCSource(const EncodedFont& font, const WriterOptions& options)
     if (!isIdentifier(options.arrayName)) {
         throw EncodeError("C array name is not a valid identifier");
     }
-    validateFont(font, options.bytesPerLine);
+    validateWriterOptions(options);
+    validateFont(font);
 
     std::string out;
     out.reserve(static_cast<std::size_t>(font.recordSize) * font.glyphs.size() * 6 + 512);
@@ -90,7 +95,11 @@ std::string toCSource(const EncodedFont& font, const WriterOptions& options)
     for (const auto& glyph : font.glyphs) {
         out += "    { // ";
         out += codepointLabel(glyph.codepoint);
-        if (isCommentPrintable(glyph.codepoint)) {
+        if (!glyph.note.empty()) {
+            out += " (";
+            out += glyph.note;
+            out += ')';
+        } else if (isCommentPrintable(glyph.codepoint) && glyph.codepoint != U'\'') {
             out += " '";
             out += utf8Encode(glyph.codepoint);
             out += "'";
@@ -118,7 +127,7 @@ std::string toCSource(const EncodedFont& font, const WriterOptions& options)
 
 std::vector<std::uint8_t> toBinary(const EncodedFont& font)
 {
-    validateFont(font, 16);
+    validateFont(font);
     std::vector<std::uint8_t> result;
     result.reserve(static_cast<std::size_t>(font.recordSize) * font.glyphs.size());
     for (const auto& glyph : font.glyphs) {
