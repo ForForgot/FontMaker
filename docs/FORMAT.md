@@ -134,10 +134,11 @@ glyph[0] | glyph[1] | glyph[2] | ...
 - `requestedFont` / `actualFont`（GDI 实际选中的字体）
 - `fontPixelHeight` / `cellWidth` / `cellHeight` / offsets
 - `scan` / `bitOrder` / `variableWidth`
-- `glyphCount` / `emptyGlyphs` / `edgeGlyphs`
+- `glyphCount` / `emptyGlyphs` / `clippedGlyphs`（边带暂存位图检测到的真实裁剪）
 - `recordSize`
 - `charsetSource` / `outputFormat`
 - `payloadSha256`：**BIN payload** 的 SHA-256，即使输出格式为 C 也按 BIN 计算
+- ctualFont 是 GDI 选中的主字体；Windows font linking 仍可能为个别缺字回退到其他字体，不能把它当成每个字形的真实来源
 
 该文件适合固件构建脚本做参数校验和可复现性记录。
 

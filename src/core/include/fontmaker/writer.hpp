@@ -20,6 +20,8 @@ struct WriterOptions {
     std::size_t bytesPerLine = 16;
 };
 
+inline constexpr std::size_t kMaxCSourceBytes = 64u * 1024u * 1024u;
+
 /// Generate a UTF-8 C source file containing one row per glyph.
 ///
 /// The generated array has the same layout as the legacy tool:

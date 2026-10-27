@@ -15,6 +15,7 @@ struct Glyph {
     int width = 0;
     int height = 0;
     int advance = 0;
+    bool clipped = false;
     std::vector<std::uint8_t> coverage;
 
     [[nodiscard]] bool valid() const noexcept

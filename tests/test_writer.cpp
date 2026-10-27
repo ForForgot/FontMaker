@@ -90,3 +90,20 @@ FM_TEST(writer_rejects_empty_font)
     }
     FM_CHECK(threw);
 }
+
+FM_TEST(c_source_rejects_oversized_output)
+{
+    EncodedFont font;
+    font.width = 4096;
+    font.height = 8;
+    font.recordSize = 4096;
+    font.glyphs.resize(3000, {U'A', std::vector<std::uint8_t>(4096, 0), {}});
+
+    bool threw = false;
+    try {
+        static_cast<void>(toCSource(font));
+    } catch (const EncodeError&) {
+        threw = true;
+    }
+    FM_CHECK(threw);
+}

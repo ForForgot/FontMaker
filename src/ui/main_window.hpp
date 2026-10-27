@@ -70,6 +70,7 @@ private:
 
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
+    HWND statusTooltip_ = nullptr;
     bool initializing_ = true;
 
     std::vector<std::wstring> fontFamilies_;

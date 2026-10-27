@@ -404,14 +404,14 @@ int main()
             std::cerr << "warning: " << font.stats.emptyGlyphs << " of "
                       << allGlyphs << " glyphs are empty\n";
         }
-        if (font.stats.edgeGlyphs > 0 && parsed->font.pixelHeight > parsed->height) {
-            std::cerr << "warning: " << font.stats.edgeGlyphs
-                      << " glyphs touch a cell edge; clipping is likely\n";
+        if (font.stats.clippedGlyphs > 0) {
+            std::cerr << "warning: " << font.stats.clippedGlyphs
+                      << " glyphs were clipped by the cell; increase width/height or adjust offsets\n";
         }
         if (parsed->stats) {
             std::cout << "stats: glyphs=" << allGlyphs
                       << " empty=" << font.stats.emptyGlyphs
-                      << " edge=" << font.stats.edgeGlyphs << '\n';
+                      << " clipped=" << font.stats.clippedGlyphs << '\n';
         }
 
         saveFont(parsed->outputPath, font, parsed->format, {parsed->arrayName});
@@ -430,7 +430,7 @@ int main()
             metadata.packing = parsed->packing;
             metadata.glyphCount = font.glyphs.size();
             metadata.emptyGlyphs = font.stats.emptyGlyphs;
-            metadata.edgeGlyphs = font.stats.edgeGlyphs;
+            metadata.clippedGlyphs = font.stats.clippedGlyphs;
             metadata.recordSize = font.recordSize;
             metadata.charsetSource = pathToUtf8(parsed->charsetPath);
             metadata.outputFormat = parsed->format == OutputFormat::CSource ? "c" : "bin";

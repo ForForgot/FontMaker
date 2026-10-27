@@ -83,6 +83,7 @@ UiSettings loadSettings()
     settings.variableWidth = readDword(key, L"VariableWidth", 0) != 0;
     settings.binaryOutput = readDword(key, L"BinaryOutput", 1) != 0;
     settings.metadata = readDword(key, L"Metadata", 0) != 0;
+    settings.standardDedupe = readDword(key, L"StandardDedupe", 0) != 0;
 
     RegCloseKey(key);
     return settings;
@@ -108,6 +109,7 @@ void saveSettings(const UiSettings& settings)
     writeDword(key, L"VariableWidth", settings.variableWidth ? 1 : 0);
     writeDword(key, L"BinaryOutput", settings.binaryOutput ? 1 : 0);
     writeDword(key, L"Metadata", settings.metadata ? 1 : 0);
+    writeDword(key, L"StandardDedupe", settings.standardDedupe ? 1 : 0);
     RegCloseKey(key);
 }
 

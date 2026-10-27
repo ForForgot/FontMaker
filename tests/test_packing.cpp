@@ -5,6 +5,7 @@
 #include "fontmaker/packing.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 using namespace fontmaker;
@@ -47,6 +48,7 @@ FM_TEST(record_size_formulas)
     FM_CHECK_EQ(recordSizeBytes(16, 16, {}), std::size_t{32});
     FM_CHECK_EQ(recordSizeBytes(16, 16, {.variableWidth = true}), std::size_t{34});
     FM_CHECK_EQ(recordSizeBytes(10, 3, {.scan = ScanDirection::Vertical}), std::size_t{10});
+    FM_CHECK_EQ(recordSizeBytes(4096, 4096, {}), std::size_t{2'097'152});
 }
 
 FM_TEST(horizontal_msb_and_lsb)
@@ -132,17 +134,19 @@ FM_TEST(encode_rejects_empty_charset)
     FM_CHECK(threw);
 }
 
-FM_TEST(encode_counts_empty_and_edge_glyphs)
+FM_TEST(encode_counts_empty_and_clipped_glyphs)
 {
     FakeRasterizer emptyRasterizer(makeGlyph(8, 8, 8, {}));
     const auto emptyFont = encodeFont(emptyRasterizer, Charset::fromUtf8("A"), {});
     FM_CHECK_EQ(emptyFont.stats.emptyGlyphs, std::size_t{1});
-    FM_CHECK_EQ(emptyFont.stats.edgeGlyphs, std::size_t{0});
+    FM_CHECK_EQ(emptyFont.stats.clippedGlyphs, std::size_t{0});
 
-    FakeRasterizer edgeRasterizer(makeGlyph(8, 8, 8, {{0, 0}}));
-    const auto edgeFont = encodeFont(edgeRasterizer, Charset::fromUtf8("A"), {});
-    FM_CHECK_EQ(edgeFont.stats.emptyGlyphs, std::size_t{0});
-    FM_CHECK_EQ(edgeFont.stats.edgeGlyphs, std::size_t{1});
+    Glyph clipped = makeGlyph(8, 8, 8, {{0, 0}});
+    clipped.clipped = true;
+    FakeRasterizer clippedRasterizer(clipped);
+    const auto clippedFont = encodeFont(clippedRasterizer, Charset::fromUtf8("A"), {});
+    FM_CHECK_EQ(clippedFont.stats.emptyGlyphs, std::size_t{0});
+    FM_CHECK_EQ(clippedFont.stats.clippedGlyphs, std::size_t{1});
 }
 
 class ThrowingRasterizer final : public GlyphRasterizer {
@@ -152,6 +156,18 @@ public:
         throw EncodeError("renderer failure");
     }
 };
+
+FM_TEST(encode_rejects_oversized_output)
+{
+    FakeRasterizer rasterizer(makeGlyph(4096, 4096, 4096, {}));
+    bool threw = false;
+    try {
+        static_cast<void>(encodeFont(rasterizer, Charset::fromUtf8(std::string(129, 'A')), {}));
+    } catch (const EncodeError&) {
+        threw = true;
+    }
+    FM_CHECK(threw);
+}
 
 FM_TEST(encode_propagates_rasterizer_exceptions)
 {

@@ -32,7 +32,7 @@ FM_TEST(metadata_json_escapes_and_contains_payload_hash)
     metadata.packing.variableWidth = true;
     metadata.glyphCount = 96;
     metadata.emptyGlyphs = 1;
-    metadata.edgeGlyphs = 2;
+    metadata.clippedGlyphs = 2;
     metadata.recordSize = 34;
     metadata.charsetSource = "charset/ASCII.cst";
     metadata.outputFormat = "bin";

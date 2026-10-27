@@ -17,6 +17,7 @@ struct UiSettings {
     bool variableWidth = false;
     bool binaryOutput = true;
     bool metadata = false;
+    bool standardDedupe = false;
 };
 
 [[nodiscard]] UiSettings loadSettings();

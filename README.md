@@ -13,7 +13,7 @@ FontMaker 是一个 Windows 点阵字库生成工具。它把系统字体渲染�
 - 原生 Win32 + GDI，不再依赖 MFC
 - 核心库与 UI 分离，带纯逻辑单元测试
 - 提供命令行工具，便于脚本化生成
-- 字体替换、空字形、贴边裁剪、超大输出等风险会显式告警
+- 字体缺失、空字形、真实裁剪、超大输出等风险会显式告警
 - 自定义码表支持去重、控制字符过滤和实时字符数
 - 原子写文件；附带可选的 JSON 元数据 sidecar
 - 记住上次使用的字体、字号、位序和格式
@@ -75,7 +75,7 @@ x64 构建会生成 `FontMaker-2.0.0-win64.zip`（Win32 构建为 `win32`）。
 5. 可选勾选“JSON 元数据”，会在输出字库旁生成同名 `.json` 文件。
 6. 点击“保存字库”。
 
-如果 GDI 替换了请求的字体、或所有字形都为空，保存流程会显式提示而不是静默成功。设置会在关闭时保存到 `HKCU\Software\FontMaker\2.0`。
+如果请求的字体不存在、或所有字形都为空，保存流程会显式提示而不是静默成功。设置会在关闭时保存到 `HKCU\Software\FontMaker\2.0`。
 
 点击“关于”查看版本信息。
 
@@ -103,16 +103,16 @@ x64 构建会生成 `FontMaker-2.0.0-win64.zip`（Win32 构建为 `win32`）。
   --scan v --bit-order lsb --variable `
   --metadata out\gb2312.json --stats
 
-# 清理重复字符和控制字符；字体被 GDI 替换时直接失败
+# 清理重复字符和控制字符；字体不存在时 strict 模式直接失败
 .\fontmaker_cli.exe `
-  --font "Definitely Not A Real Font" `
+  --font "SimSun" `
   --charset charset\ASCII.cst --output out\ascii.c `
   --dedupe --filter-controls --strict-font
 ```
 
-- `--metadata <file>` 记录实际字体名、尺寸、扫描/位序、字符数、空/贴边统计和 BIN payload 的 SHA-256。
-- `--stats` 输出空字形和贴边字形数量。
-- `--strict-font` 在 GDI 替换字体时返回失败；否则只打印 warning。
+- `--metadata <file>` 记录实际字体名、尺寸、扫描/位序、字符数、空/裁剪统计和 BIN payload 的 SHA-256。
+- `--stats` 输出空字形和被裁剪字形数量。
+- `--strict-font` 对不存在的字体返回失败；正常字体只打印实际解析到的字体名。
 - 输出目录不存在时会自动创建。
 
 运行 `fontmaker_cli.exe --help` 查看完整参数。
@@ -169,7 +169,7 @@ static const unsigned char bits[][32] =
   "variableWidth": false,
   "glyphCount": 96,
   "emptyGlyphs": 1,
-  "edgeGlyphs": 42,
+  "clippedGlyphs": 0,
   "recordSize": 32,
   "payloadSha256": "..."
 }
@@ -190,7 +190,7 @@ static const unsigned char bits[][32] =
 | `UNICODE.cst` | 65536 |
 | `ISO8859-1.cst` / `IBM860.cst` / `KOI8-R.cst` | 256 |
 
-也可以用“用户定义”直接输入 UTF-8 文本，程序内部转换为 Unicode 码点。编辑器默认开启“去重”和“过滤控制字符”，因此回车不会被误生成为空白字形；实时显示清理后的字符数。CLI 对应选项为 `--dedupe` 和 `--filter-controls`。
+也可以用“用户定义”直接输入 UTF-8 文本，程序内部转换为 Unicode 码点。编辑器默认开启“去重”和“过滤控制字符”，因此回车不会被误生成为空白字形；实时显示清理后的字符数。CLI 对应选项为 `--dedupe` 和 `--filter-controls`。标准字库旁的“去重”复选框可以对 `.cst` 顺序表去重，例如把 `UNICODE.cst` 中重复的代理项占位折叠掉。
 
 如果使用 `UNICODE.cst`，被替换的代理项会在 C 注释中保留来源，例如：
 
@@ -230,6 +230,7 @@ docs/                   格式和架构文档
 - 使用 GDI 的简单 `TextOutW`，不处理阿拉伯文/印度语系等复杂文字整形，也不渲染彩色 emoji
 - 导出仍在 UI 线程同步执行；超大字符集（如 `UNICODE.cst`）可能需要数秒，暂不支持取消
 - 还没有字形网格浏览器；空字形和裁剪通过统计/状态栏提示
+- C 源文件输出有 64 MiB 安全上限；更大的字库请使用 BIN
 - “可变宽度”仍保存完整矩阵，只额外保存 advance width
 - C 数组不含码表索引，运行时需要按字符集顺序查找
 - UI 文案目前为中文硬编码，未做 i18n；DPI 为 system-aware

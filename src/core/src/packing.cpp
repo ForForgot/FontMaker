@@ -32,24 +32,6 @@ bool glyphIsEmpty(const Glyph& glyph)
         [](std::uint8_t value) { return value == 0; });
 }
 
-bool glyphTouchesEdge(const Glyph& glyph)
-{
-    if (glyphIsEmpty(glyph)) {
-        return false;
-    }
-    for (int x = 0; x < glyph.width; ++x) {
-        if (glyph.pixel(x, 0) || glyph.pixel(x, glyph.height - 1)) {
-            return true;
-        }
-    }
-    for (int y = 0; y < glyph.height; ++y) {
-        if (glyph.pixel(0, y) || glyph.pixel(glyph.width - 1, y)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace
 
 const char* toString(ScanDirection value) noexcept
@@ -156,8 +138,9 @@ EncodedFont encodeFont(
 
         if (glyphIsEmpty(glyph)) {
             ++result.stats.emptyGlyphs;
-        } else if (glyphTouchesEdge(glyph)) {
-            ++result.stats.edgeGlyphs;
+        }
+        if (glyph.clipped) {
+            ++result.stats.clippedGlyphs;
         }
 
         result.glyphs.push_back({codepoint, packGlyph(glyph, options), charset.note(index)});

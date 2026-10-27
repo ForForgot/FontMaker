@@ -28,7 +28,7 @@
 
 - `charset`：UTF-8 / UTF-16LE 解码，`.cst` 文件加载
 - `glyph`：`Glyph` 和 `GlyphRasterizer` 接口
-- `packing`：扫描、位序、可变宽度前缀、空/贴边统计和输出上限
+- `packing`：扫描、位序、可变宽度前缀、空/裁剪统计和输出上限
 - `writer`：C 源码和 BIN 输出
 - `metadata` / `sha256`：可复现性 sidecar 和 payload 哈希
 - `io` / `utf` / `error`：基础设施
@@ -37,7 +37,7 @@
 
 ### platform/windows
 
-- `GdiGlyphRasterizer`：32 位 top-down DIB，`TextOutW` 渲染，读取像素到 `Glyph`
+- `GdiGlyphRasterizer`：32 位 top-down DIB，四周增加 4px 探测边带，`TextOutW` 渲染后区分真实裁剪像素与单元内像素
 - `enumerateFontFamilies`：`EnumFontFamiliesExW`，排除 `@` 竖排字体
 - `win32_utils`：UTF-8/UTF-16 转换、文件对话框、错误文本、窗口辅助
 
@@ -81,7 +81,7 @@ EncodedFont { recordSize, glyphs[] }
 - 核心使用异常报告错误；UI 在对话框过程和保存路径中捕获并显示
 - 字符集加载失败会清空当前字符集，而不是保留半加载状态
 - 文件对话框返回完整路径；文件写入使用同目录临时文件 + 原子替换
-- 字体被 GDI 替换、字号超过点阵高度、全空输出都会告警；字号超过高度时同时报告贴边字形，CLI 可用 `--strict-font` / `--allow-empty` 控制
+- 请求字体不存在、字号超过点阵高度、全空输出都会告警；真实裁剪由边带探测报告，CLI 可用 `--strict-font` / `--allow-empty` 控制
 
 ## 初始化顺序
 
@@ -110,7 +110,7 @@ CTest 运行 `fontmaker_tests`：
 - UTF-8/UTF-16 边界和代理对
 - `.cst` BOM、奇数字节、代理项来源和临时文件往返
 - 字符清理（去重、控制字符）和原子覆盖写
-- 横/纵扫描、MSB/LSB、补齐位、空/贴边统计
+- 横/纵扫描、MSB/LSB、补齐位、空/裁剪统计
 - 可变宽度大端前缀和 SHA-256/JSON 元数据
 - C 输出结构、单引号注释和 BIN 拼接
 - 渲染器进度回调、异常路径和全空输出保护

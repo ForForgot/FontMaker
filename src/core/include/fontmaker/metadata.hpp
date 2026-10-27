@@ -23,7 +23,7 @@ struct FontMetadata {
     PackOptions packing;
     std::size_t glyphCount = 0;
     std::size_t emptyGlyphs = 0;
-    std::size_t edgeGlyphs = 0;
+    std::size_t clippedGlyphs = 0;
     int recordSize = 0;
     std::string charsetSource;
     std::string outputFormat;

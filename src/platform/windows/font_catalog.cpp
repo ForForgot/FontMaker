@@ -40,6 +40,16 @@ int CALLBACK enumFontCallback(
     return 1;
 }
 
+int CALLBACK existsFontCallback(
+    const LOGFONTW* /*logFont*/,
+    const TEXTMETRICW* /*metrics*/,
+    DWORD /*fontType*/,
+    LPARAM userData)
+{
+    *reinterpret_cast<bool*>(userData) = true;
+    return 0;
+}
+
 } // namespace
 
 std::vector<std::wstring> enumerateFontFamilies()
@@ -55,6 +65,27 @@ std::vector<std::wstring> enumerateFontFamilies()
     }
 
     return {families.begin(), families.end()};
+}
+
+bool fontFamilyExists(const std::wstring& family)
+{
+    if (family.empty()) {
+        return false;
+    }
+
+    HDC dc = GetDC(nullptr);
+    if (dc == nullptr) {
+        return false;
+    }
+
+    LOGFONTW filter{};
+    filter.lfCharSet = DEFAULT_CHARSET;
+    wcsncpy_s(filter.lfFaceName, family.c_str(), _TRUNCATE);
+    bool found = false;
+    EnumFontFamiliesExW(dc, &filter, existsFontCallback,
+        reinterpret_cast<LPARAM>(&found), 0);
+    ReleaseDC(nullptr, dc);
+    return found;
 }
 
 } // namespace fontmaker::win32

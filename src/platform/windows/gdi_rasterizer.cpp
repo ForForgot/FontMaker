@@ -4,6 +4,8 @@
 #include "fontmaker/packing.hpp"
 #include "fontmaker/utf.hpp"
 
+#include "font_catalog.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -13,6 +15,8 @@
 
 namespace fontmaker::win32 {
 namespace {
+
+constexpr int kProbeMargin = 4;
 
 [[noreturn]] void throwGdiError(const char* operation)
 {
@@ -81,6 +85,8 @@ void GdiGlyphRasterizer::release()
     }
     pixels_ = nullptr;
     stride_ = 0;
+    dibWidth_ = 0;
+    dibHeight_ = 0;
 }
 
 void GdiGlyphRasterizer::ensureFont()
@@ -125,15 +131,15 @@ void GdiGlyphRasterizer::ensureFont()
     }
 }
 
-bool GdiGlyphRasterizer::substituted() const noexcept
+bool GdiGlyphRasterizer::substituted() const
 {
-    if (actualFamily_.empty() || fontDescriptor_.family.empty()) {
+    if (fontDescriptor_.family.empty()) {
         return false;
     }
-    return CompareStringOrdinal(
-               fontDescriptor_.family.c_str(), static_cast<int>(fontDescriptor_.family.size()),
-               actualFamily_.c_str(), static_cast<int>(actualFamily_.size()), TRUE)
-        != CSTR_EQUAL;
+    // GetTextFaceW reports localized display names. Comparing that name with
+    // a request such as "SimSun" produces false positives even though GDI
+    // selected the same physical font. Existence is the reliable check.
+    return !fontFamilyExists(fontDescriptor_.family);
 }
 
 void GdiGlyphRasterizer::ensureBitmap(int width, int height)
@@ -147,10 +153,13 @@ void GdiGlyphRasterizer::ensureBitmap(int width, int height)
         return;
     }
 
+    const int dibWidth = width + kProbeMargin * 2;
+    const int dibHeight = height + kProbeMargin * 2;
+
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = width;
-    info.bmiHeader.biHeight = -height; // top-down: row 0 is the top row
+    info.bmiHeader.biWidth = dibWidth;
+    info.bmiHeader.biHeight = -dibHeight; // top-down: row 0 is the top row
     info.bmiHeader.biPlanes = 1;
     info.bmiHeader.biBitCount = 32;
     info.bmiHeader.biCompression = BI_RGB;
@@ -174,10 +183,12 @@ void GdiGlyphRasterizer::ensureBitmap(int width, int height)
 
     bitmap_ = newBitmap;
     pixels_ = pixels;
-    stride_ = width * 4;
+    stride_ = dibWidth * 4;
     width_ = width;
     height_ = height;
-    std::memset(pixels_, 0, static_cast<std::size_t>(stride_) * static_cast<std::size_t>(height_));
+    dibWidth_ = dibWidth;
+    dibHeight_ = dibHeight;
+    std::memset(pixels_, 0, static_cast<std::size_t>(stride_) * static_cast<std::size_t>(dibHeight_));
 }
 
 void GdiGlyphRasterizer::setFont(const FontDescriptor& font)
@@ -210,11 +221,12 @@ Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
         throw Error("cannot rasterize an empty code point");
     }
 
-    if (!PatBlt(dc_, 0, 0, width_, height_, BLACKNESS)) {
+    if (!PatBlt(dc_, 0, 0, dibWidth_, dibHeight_, BLACKNESS)) {
         throwGdiError("PatBlt");
     }
 
-    if (!TextOutW(dc_, offsetX_, offsetY_, text.c_str(), static_cast<int>(text.size()))) {
+    if (!TextOutW(dc_, offsetX_ + kProbeMargin, offsetY_ + kProbeMargin,
+            text.c_str(), static_cast<int>(text.size()))) {
         throwGdiError("TextOutW");
     }
 
@@ -230,15 +242,26 @@ Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
     glyph.coverage.resize(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_));
 
     const auto* base = static_cast<const std::uint8_t*>(pixels_);
-    for (int y = 0; y < height_; ++y) {
-        const auto* row = reinterpret_cast<const std::uint32_t*>(base + static_cast<std::size_t>(y) * stride_);
-        for (int x = 0; x < width_; ++x) {
+    for (int y = 0; y < dibHeight_; ++y) {
+        const auto* row = reinterpret_cast<const std::uint32_t*>(
+            base + static_cast<std::size_t>(y) * stride_);
+        for (int x = 0; x < dibWidth_; ++x) {
             const std::uint32_t pixel = row[x];
             const auto blue = static_cast<std::uint8_t>(pixel & 0xFF);
             const auto green = static_cast<std::uint8_t>((pixel >> 8) & 0xFF);
             const auto red = static_cast<std::uint8_t>((pixel >> 16) & 0xFF);
-            glyph.coverage[static_cast<std::size_t>(y) * static_cast<std::size_t>(width_)
-                + static_cast<std::size_t>(x)] = std::max({red, green, blue});
+            const auto value = std::max({red, green, blue});
+
+            const int cellX = x - kProbeMargin;
+            const int cellY = y - kProbeMargin;
+            if (cellX < 0 || cellX >= width_ || cellY < 0 || cellY >= height_) {
+                if (value != 0) {
+                    glyph.clipped = true;
+                }
+                continue;
+            }
+            glyph.coverage[static_cast<std::size_t>(cellY) * static_cast<std::size_t>(width_)
+                + static_cast<std::size_t>(cellX)] = value;
         }
     }
 
@@ -250,7 +273,8 @@ void GdiGlyphRasterizer::draw(
 {
     static_cast<void>(rasterize(codepoint));
     SetStretchBltMode(target, COLORONCOLOR);
-    StretchBlt(target, x, y, width, height, dc_, 0, 0, width_, height_, SRCCOPY);
+    StretchBlt(target, x, y, width, height, dc_, kProbeMargin, kProbeMargin,
+        width_, height_, SRCCOPY);
 }
 
 } // namespace fontmaker::win32

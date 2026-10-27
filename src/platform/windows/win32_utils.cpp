@@ -75,16 +75,25 @@ std::wstring widen(std::string_view text)
     if (text.empty()) {
         return {};
     }
-    const int length = MultiByteToWideChar(
-        CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    // Display/error text conversion must never throw: callers include
+    // dialog-procedure catch blocks, where an escaping exception is UB.
+    UINT flags = MB_ERR_INVALID_CHARS;
+    int length = MultiByteToWideChar(
+        CP_UTF8, flags, text.data(), static_cast<int>(text.size()), nullptr, 0);
     if (length <= 0) {
-        throw Error("cannot convert UTF-8 text to UTF-16: invalid input");
+        flags = 0;
+        length = MultiByteToWideChar(
+            CP_UTF8, flags, text.data(), static_cast<int>(text.size()), nullptr, 0);
     }
+    if (length <= 0) {
+        return L"<invalid UTF-8>";
+    }
+
     std::wstring result(static_cast<std::size_t>(length), L'\0');
     if (MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()),
+            CP_UTF8, flags, text.data(), static_cast<int>(text.size()),
             result.data(), length) <= 0) {
-        throw Error("cannot convert UTF-8 text to UTF-16");
+        return L"<invalid UTF-8>";
     }
     return result;
 }

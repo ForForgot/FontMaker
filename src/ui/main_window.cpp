@@ -115,6 +115,20 @@ bool MainWindow::onInitDialog()
         SendMessageW(window_, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(icon));
     }
 
+    statusTooltip_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+        WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, 0, 0, 0, 0,
+        window_, nullptr, instance_, nullptr);
+    if (statusTooltip_ != nullptr) {
+        HWND status = GetDlgItem(window_, IDC_STATUS);
+        TOOLINFOW tool{};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = window_;
+        tool.uId = reinterpret_cast<UINT_PTR>(status);
+        tool.lpszText = const_cast<wchar_t*>(L"");
+        SendMessageW(statusTooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+    }
+
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"常规"));
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"加粗"));
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"倾斜"));
@@ -149,6 +163,8 @@ bool MainWindow::onInitDialog()
         settings_.binaryOutput ? IDC_FORMAT_BIN : IDC_FORMAT_C);
     CheckDlgButton(window_, IDC_METADATA,
         settings_.metadata ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(window_, IDC_STD_DEDUPE,
+        settings_.standardDedupe ? BST_CHECKED : BST_UNCHECKED);
 
     populateFonts();
 
@@ -185,6 +201,12 @@ INT_PTR MainWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam)
     case WM_HELP:
         showAboutDialog(window_, instance_);
         return TRUE;
+    case WM_DESTROY:
+        if (statusTooltip_ != nullptr) {
+            DestroyWindow(statusTooltip_);
+            statusTooltip_ = nullptr;
+        }
+        return FALSE;
     case WM_CLOSE:
         saveUiSettings();
         EndDialog(window_, IDCANCEL);
@@ -245,6 +267,11 @@ void MainWindow::onCommand(int controlId, int notification)
     case IDC_CHARSET_LIST:
         if (notification == CBN_SELCHANGE) {
             onCharsetSelectionChanged();
+        }
+        break;
+    case IDC_STD_DEDUPE:
+        if (notification == BN_CLICKED && checked(IDC_STD)) {
+            loadSelectedCharset();
         }
         break;
     case IDC_FONT_SIZE:
@@ -411,38 +438,44 @@ void MainWindow::onSave()
 
         saveFont(*path, encoded, binary ? OutputFormat::Binary : OutputFormat::CSource);
         std::filesystem::path metadataPath;
+        std::wstring metadataError;
         if (checked(IDC_METADATA)) {
             metadataPath = path->parent_path() / (path->stem().wstring() + L".json");
-            const auto binaryPayload = toBinary(encoded);
-            FontMetadata metadata;
-            metadata.generatorVersion = FONTMAKER_VERSION_A;
-            metadata.requestedFont = win32::narrow(fontFamily_);
-            metadata.actualFont = win32::narrow(rasterizer_->actualFamily());
-            metadata.fontPixelHeight = fontSize_;
-            metadata.cellWidth = glyphWidth_;
-            metadata.cellHeight = glyphHeight_;
-            metadata.offsetX = offsetX_;
-            metadata.offsetY = offsetY_;
-            metadata.packing = packing;
-            metadata.glyphCount = encoded.glyphs.size();
-            metadata.emptyGlyphs = encoded.stats.emptyGlyphs;
-            metadata.edgeGlyphs = encoded.stats.edgeGlyphs;
-            metadata.recordSize = encoded.recordSize;
-            if (checked(IDC_STD)) {
-                const LRESULT selection = SendDlgItemMessageW(
-                    window_, IDC_CHARSET_LIST, CB_GETCURSEL, 0, 0);
-                if (selection != CB_ERR && static_cast<std::size_t>(selection) < charsetFiles_.size()) {
-                    metadata.charsetSource = pathToUtf8(
-                        charsetFiles_[static_cast<std::size_t>(selection)]);
+            try {
+                const auto binaryPayload = toBinary(encoded);
+                FontMetadata metadata;
+                metadata.generatorVersion = FONTMAKER_VERSION_A;
+                metadata.requestedFont = win32::narrow(fontFamily_);
+                metadata.actualFont = win32::narrow(rasterizer_->actualFamily());
+                metadata.fontPixelHeight = fontSize_;
+                metadata.cellWidth = glyphWidth_;
+                metadata.cellHeight = glyphHeight_;
+                metadata.offsetX = offsetX_;
+                metadata.offsetY = offsetY_;
+                metadata.packing = packing;
+                metadata.glyphCount = encoded.glyphs.size();
+                metadata.emptyGlyphs = encoded.stats.emptyGlyphs;
+                metadata.clippedGlyphs = encoded.stats.clippedGlyphs;
+                metadata.recordSize = encoded.recordSize;
+                if (checked(IDC_STD)) {
+                    const LRESULT selection = SendDlgItemMessageW(
+                        window_, IDC_CHARSET_LIST, CB_GETCURSEL, 0, 0);
+                    if (selection != CB_ERR
+                        && static_cast<std::size_t>(selection) < charsetFiles_.size()) {
+                        metadata.charsetSource = pathToUtf8(
+                            charsetFiles_[static_cast<std::size_t>(selection)]);
+                    }
+                } else {
+                    metadata.charsetSource = "user-defined";
                 }
-            } else {
-                metadata.charsetSource = "user-defined";
+                metadata.outputFormat = binary ? "bin" : "c";
+                metadata.payloadSha256 = sha256Hex(binaryPayload);
+                const std::string json = toJson(metadata);
+                writeBinaryFile(metadataPath, std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t*>(json.data()), json.size()));
+            } catch (const std::exception& error) {
+                metadataError = win32::widen(error.what());
             }
-            metadata.outputFormat = binary ? "bin" : "c";
-            metadata.payloadSha256 = sha256Hex(binaryPayload);
-            const std::string json = toJson(metadata);
-            writeBinaryFile(metadataPath, std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t*>(json.data()), json.size()));
         }
 
         setStatus(L"已保存 " + fileNameOf(*path) + L"（"
@@ -454,12 +487,15 @@ void MainWindow::onSave()
         if (!metadataPath.empty()) {
             message += L"\n元数据：" + metadataPath.wstring();
         }
+        if (!metadataError.empty()) {
+            message += L"\n\n注意：字库已保存，但元数据写入失败：\n" + metadataError;
+        }
         if (encoded.stats.emptyGlyphs > 0) {
             message += L"\n空字形：" + std::to_wstring(encoded.stats.emptyGlyphs);
         }
-        if (encoded.stats.edgeGlyphs > 0 && fontSize_ > glyphHeight_) {
-            message += L"\n贴边字形：" + std::to_wstring(encoded.stats.edgeGlyphs)
-                + L"（可能被裁剪）";
+        if (encoded.stats.clippedGlyphs > 0) {
+            message += L"\n被裁剪字形：" + std::to_wstring(encoded.stats.clippedGlyphs)
+                + L"（请增大点阵尺寸或调整偏移）";
         }
         if (!fontWarning_.empty()) {
             message += L"\n\n注意：" + fontWarning_;
@@ -631,13 +667,18 @@ void MainWindow::populateFonts()
         return false;
     };
 
-    if ((!settings_.fontFamily.empty() && select(settings_.fontFamily.c_str()))
-        || select(L"Microsoft YaHei UI")
-        || select(L"Segoe UI")
-        || !fontFamilies_.empty()) {
-        if (SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_GETCURSEL, 0, 0) == CB_ERR) {
-            SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_SETCURSEL, 0, 0);
-        }
+    bool chosen = false;
+    if (!settings_.fontFamily.empty()) {
+        chosen = select(settings_.fontFamily.c_str());
+    }
+    if (!chosen) {
+        chosen = select(L"Microsoft YaHei UI");
+    }
+    if (!chosen) {
+        chosen = select(L"Segoe UI");
+    }
+    if (!chosen && !fontFamilies_.empty()) {
+        SendDlgItemMessageW(window_, IDC_FONT_LIST, CB_SETCURSEL, 0, 0);
     }
 
     fontFamily_ = selectedFontFamily();
@@ -694,6 +735,11 @@ void MainWindow::loadSelectedCharset()
 
     try {
         charset_ = Charset::loadCst(charsetFiles_[static_cast<std::size_t>(selection)]);
+        if (checked(IDC_STD_DEDUPE)) {
+            CharsetCleanup cleanup;
+            cleanup.dedupe = true;
+            charset_ = charset_.cleaned(cleanup);
+        }
         characterIndex_ = 0;
         setStatus(L"已加载 " + charsetFiles_[static_cast<std::size_t>(selection)].filename().wstring()
             + L"（" + std::to_wstring(charset_.size()) + L" 个字符）");
@@ -786,6 +832,7 @@ void MainWindow::saveUiSettings()
     settings_.variableWidth = checked(IDC_VARIABLE);
     settings_.binaryOutput = checked(IDC_FORMAT_BIN);
     settings_.metadata = checked(IDC_METADATA);
+    settings_.standardDedupe = checked(IDC_STD_DEDUPE);
     saveSettings(settings_);
 }
 
@@ -842,8 +889,19 @@ void MainWindow::renderStatus()
         append(L"⚠ " + metricsWarning_);
     }
     append(statusText_);
-    win32::setWindowText(window_, IDC_STATUS,
-        text.empty() ? L"就绪" : text);
+    const std::wstring display = text.empty() ? L"就绪" : text;
+    win32::setWindowText(window_, IDC_STATUS, display);
+
+    if (statusTooltip_ != nullptr) {
+        HWND status = GetDlgItem(window_, IDC_STATUS);
+        TOOLINFOW tool{};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        tool.hwnd = window_;
+        tool.uId = reinterpret_cast<UINT_PTR>(status);
+        tool.lpszText = const_cast<wchar_t*>(display.c_str());
+        SendMessageW(statusTooltip_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&tool));
+    }
 }
 
 void MainWindow::setStatus(const std::wstring& text)

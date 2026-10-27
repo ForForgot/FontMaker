@@ -16,6 +16,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace fontmaker {
@@ -42,9 +44,14 @@ std::filesystem::path makeTemporaryPath(const std::filesystem::path& target)
 {
     static std::atomic<unsigned long long> counter{0};
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+#ifdef _WIN32
+    const auto processId = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const auto processId = static_cast<unsigned long>(getpid());
+#endif
     std::filesystem::path name = target.filename();
-    name += std::filesystem::path(".tmp." + std::to_string(stamp) + "."
-        + std::to_string(counter++));
+    name += std::filesystem::path(".tmp." + std::to_string(processId) + "."
+        + std::to_string(stamp) + "." + std::to_string(counter++));
     return target.parent_path() / name;
 }
 
