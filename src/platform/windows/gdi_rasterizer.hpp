@@ -68,6 +68,8 @@ private:
     int height_ = 0;
     int dibWidth_ = 0;
     int dibHeight_ = 0;
+    int probeMarginX_ = 0;
+    int probeMarginY_ = 0;
     int offsetX_ = 0;
     int offsetY_ = 0;
     std::wstring actualFamily_;

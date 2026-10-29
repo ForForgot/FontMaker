@@ -127,6 +127,7 @@ bool MainWindow::onInitDialog()
         tool.uId = reinterpret_cast<UINT_PTR>(status);
         tool.lpszText = const_cast<wchar_t*>(L"");
         SendMessageW(statusTooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+        SendMessageW(statusTooltip_, TTM_SETMAXTIPWIDTH, 0, 400);
     }
 
     SendDlgItemMessageW(window_, IDC_FONT_STYLE, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"常规"));
@@ -456,6 +457,7 @@ void MainWindow::onSave()
                 metadata.glyphCount = encoded.glyphs.size();
                 metadata.emptyGlyphs = encoded.stats.emptyGlyphs;
                 metadata.clippedGlyphs = encoded.stats.clippedGlyphs;
+                metadata.overhangGlyphs = encoded.stats.overhangGlyphs;
                 metadata.recordSize = encoded.recordSize;
                 if (checked(IDC_STD)) {
                     const LRESULT selection = SendDlgItemMessageW(
@@ -495,7 +497,7 @@ void MainWindow::onSave()
         }
         if (encoded.stats.clippedGlyphs > 0) {
             message += L"\n被裁剪字形：" + std::to_wstring(encoded.stats.clippedGlyphs)
-                + L"（请增大点阵尺寸或调整偏移）";
+                + L"（请增大点阵尺寸或向左/上移动字形）";
         }
         if (!fontWarning_.empty()) {
             message += L"\n\n注意：" + fontWarning_;

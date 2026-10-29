@@ -142,6 +142,9 @@ EncodedFont encodeFont(
         if (glyph.clipped) {
             ++result.stats.clippedGlyphs;
         }
+        if (glyph.overhang) {
+            ++result.stats.overhangGlyphs;
+        }
 
         result.glyphs.push_back({codepoint, packGlyph(glyph, options), charset.note(index)});
         if (progress) {

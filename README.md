@@ -110,9 +110,10 @@ x64 构建会生成 `FontMaker-2.0.0-win64.zip`（Win32 构建为 `win32`）。
   --dedupe --filter-controls --strict-font
 ```
 
-- `--metadata <file>` 记录实际字体名、尺寸、扫描/位序、字符数、空/裁剪统计和 BIN payload 的 SHA-256。
-- `--stats` 输出空字形和被裁剪字形数量。
-- `--strict-font` 对不存在的字体返回失败；正常字体只打印实际解析到的字体名。
+- `--metadata <file>` 记录实际字体名、尺寸、扫描/位序、字符数、空/裁剪/overhang 统计和 BIN payload 的 SHA-256。
+- `--strict-metadata` 让元数据写入失败返回 exit 1；默认只打印 warning，因为字库主产物已经保存。
+- `--stats` 输出空字形、右侧/底部溢出（clipped）和左侧/顶部超出原点（overhang）数量。
+- `--strict-font` 对不存在的字体返回失败；正常字体不额外告警，实际字体记录在元数据中。
 - 输出目录不存在时会自动创建。
 
 运行 `fontmaker_cli.exe --help` 查看完整参数。
@@ -170,6 +171,7 @@ static const unsigned char bits[][32] =
   "glyphCount": 96,
   "emptyGlyphs": 1,
   "clippedGlyphs": 0,
+  "overhangGlyphs": 2,
   "recordSize": 32,
   "payloadSha256": "..."
 }

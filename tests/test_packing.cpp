@@ -140,6 +140,7 @@ FM_TEST(encode_counts_empty_and_clipped_glyphs)
     const auto emptyFont = encodeFont(emptyRasterizer, Charset::fromUtf8("A"), {});
     FM_CHECK_EQ(emptyFont.stats.emptyGlyphs, std::size_t{1});
     FM_CHECK_EQ(emptyFont.stats.clippedGlyphs, std::size_t{0});
+    FM_CHECK_EQ(emptyFont.stats.overhangGlyphs, std::size_t{0});
 
     Glyph clipped = makeGlyph(8, 8, 8, {{0, 0}});
     clipped.clipped = true;
@@ -147,6 +148,14 @@ FM_TEST(encode_counts_empty_and_clipped_glyphs)
     const auto clippedFont = encodeFont(clippedRasterizer, Charset::fromUtf8("A"), {});
     FM_CHECK_EQ(clippedFont.stats.emptyGlyphs, std::size_t{0});
     FM_CHECK_EQ(clippedFont.stats.clippedGlyphs, std::size_t{1});
+    FM_CHECK_EQ(clippedFont.stats.overhangGlyphs, std::size_t{0});
+
+    Glyph overhang = makeGlyph(8, 8, 8, {{0, 0}});
+    overhang.overhang = true;
+    FakeRasterizer overhangRasterizer(overhang);
+    const auto overhangFont = encodeFont(overhangRasterizer, Charset::fromUtf8("A"), {});
+    FM_CHECK_EQ(overhangFont.stats.clippedGlyphs, std::size_t{0});
+    FM_CHECK_EQ(overhangFont.stats.overhangGlyphs, std::size_t{1});
 }
 
 class ThrowingRasterizer final : public GlyphRasterizer {

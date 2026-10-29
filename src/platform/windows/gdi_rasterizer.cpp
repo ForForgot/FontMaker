@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -16,7 +17,8 @@
 namespace fontmaker::win32 {
 namespace {
 
-constexpr int kProbeMargin = 4;
+constexpr int kMinProbeMargin = 4;
+constexpr std::int64_t kMaxProbePixels = 64ll * 1024ll * 1024ll;
 
 [[noreturn]] void throwGdiError(const char* operation)
 {
@@ -87,6 +89,8 @@ void GdiGlyphRasterizer::release()
     stride_ = 0;
     dibWidth_ = 0;
     dibHeight_ = 0;
+    probeMarginX_ = 0;
+    probeMarginY_ = 0;
 }
 
 void GdiGlyphRasterizer::ensureFont()
@@ -149,12 +153,18 @@ void GdiGlyphRasterizer::ensureBitmap(int width, int height)
         throw Error("glyph cell size is outside the supported range");
     }
 
-    if (bitmap_ != nullptr && width == width_ && height == height_) {
+    const int marginX = (std::max)(kMinProbeMargin, std::abs(offsetX_) + kMinProbeMargin);
+    const int marginY = (std::max)(kMinProbeMargin, std::abs(offsetY_) + kMinProbeMargin);
+    if (bitmap_ != nullptr && width == width_ && height == height_
+        && marginX == probeMarginX_ && marginY == probeMarginY_) {
         return;
     }
 
-    const int dibWidth = width + kProbeMargin * 2;
-    const int dibHeight = height + kProbeMargin * 2;
+    const int dibWidth = width + marginX * 2;
+    const int dibHeight = height + marginY * 2;
+    if (static_cast<std::int64_t>(dibWidth) * dibHeight > kMaxProbePixels) {
+        throw Error("cell and offset are too large for clipping detection");
+    }
 
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -188,6 +198,8 @@ void GdiGlyphRasterizer::ensureBitmap(int width, int height)
     height_ = height;
     dibWidth_ = dibWidth;
     dibHeight_ = dibHeight;
+    probeMarginX_ = marginX;
+    probeMarginY_ = marginY;
     std::memset(pixels_, 0, static_cast<std::size_t>(stride_) * static_cast<std::size_t>(dibHeight_));
 }
 
@@ -209,9 +221,9 @@ void GdiGlyphRasterizer::setMetrics(int width, int height, int offsetX, int offs
         || offsetY < -kMaxGlyphOffset || offsetY > kMaxGlyphOffset) {
         throw Error("glyph offset is outside the supported range");
     }
-    ensureBitmap(width, height);
     offsetX_ = offsetX;
     offsetY_ = offsetY;
+    ensureBitmap(width, height);
 }
 
 Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
@@ -225,7 +237,7 @@ Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
         throwGdiError("PatBlt");
     }
 
-    if (!TextOutW(dc_, offsetX_ + kProbeMargin, offsetY_ + kProbeMargin,
+    if (!TextOutW(dc_, offsetX_ + probeMarginX_, offsetY_ + probeMarginY_,
             text.c_str(), static_cast<int>(text.size()))) {
         throwGdiError("TextOutW");
     }
@@ -252,11 +264,16 @@ Glyph GdiGlyphRasterizer::rasterize(char32_t codepoint)
             const auto red = static_cast<std::uint8_t>((pixel >> 16) & 0xFF);
             const auto value = std::max({red, green, blue});
 
-            const int cellX = x - kProbeMargin;
-            const int cellY = y - kProbeMargin;
+            const int cellX = x - probeMarginX_;
+            const int cellY = y - probeMarginY_;
             if (cellX < 0 || cellX >= width_ || cellY < 0 || cellY >= height_) {
                 if (value != 0) {
-                    glyph.clipped = true;
+                    if (cellX < 0 || cellY < 0) {
+                        glyph.overhang = true;
+                    }
+                    if (cellX >= width_ || cellY >= height_) {
+                        glyph.clipped = true;
+                    }
                 }
                 continue;
             }
@@ -273,7 +290,7 @@ void GdiGlyphRasterizer::draw(
 {
     static_cast<void>(rasterize(codepoint));
     SetStretchBltMode(target, COLORONCOLOR);
-    StretchBlt(target, x, y, width, height, dc_, kProbeMargin, kProbeMargin,
+    StretchBlt(target, x, y, width, height, dc_, probeMarginX_, probeMarginY_,
         width_, height_, SRCCOPY);
 }
 

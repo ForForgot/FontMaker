@@ -33,6 +33,7 @@ FM_TEST(metadata_json_escapes_and_contains_payload_hash)
     metadata.glyphCount = 96;
     metadata.emptyGlyphs = 1;
     metadata.clippedGlyphs = 2;
+    metadata.overhangGlyphs = 3;
     metadata.recordSize = 34;
     metadata.charsetSource = "charset/ASCII.cst";
     metadata.outputFormat = "bin";
@@ -43,5 +44,7 @@ FM_TEST(metadata_json_escapes_and_contains_payload_hash)
     FM_CHECK(json.find("\"actualFont\": \"Arial\"") != std::string::npos);
     FM_CHECK(json.find("\"variableWidth\": true") != std::string::npos);
     FM_CHECK(json.find("\"emptyGlyphs\": 1") != std::string::npos);
+    FM_CHECK(json.find("\"clippedGlyphs\": 2") != std::string::npos);
+    FM_CHECK(json.find("\"overhangGlyphs\": 3") != std::string::npos);
     FM_CHECK(json.find("\"payloadSha256\": \"abc123\"") != std::string::npos);
 }

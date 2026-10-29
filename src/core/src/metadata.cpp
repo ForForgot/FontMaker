@@ -74,6 +74,7 @@ std::string toJson(const FontMetadata& metadata)
     stream << "  \"glyphCount\": " << metadata.glyphCount << ",\n";
     stream << "  \"emptyGlyphs\": " << metadata.emptyGlyphs << ",\n";
     stream << "  \"clippedGlyphs\": " << metadata.clippedGlyphs << ",\n";
+    stream << "  \"overhangGlyphs\": " << metadata.overhangGlyphs << ",\n";
     stream << "  \"recordSize\": " << metadata.recordSize << ",\n";
     stream << "  \"charsetSource\": " << quote(metadata.charsetSource) << ",\n";
     stream << "  \"outputFormat\": " << quote(metadata.outputFormat) << ",\n";

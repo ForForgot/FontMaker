@@ -3,7 +3,12 @@
 ## Unreleased
 
 评审加固：
-- 用 4px 探测边带检测真实裁剪，`edgeGlyphs` 更名为 `clippedGlyphs`
+- 将裁剪拆分为右/下 `clippedGlyphs` 与左/上 `overhangGlyphs`，固有负边距不再误报
+- 探测边带随偏移扩展，并设置像素上限，避免大偏移下漏检或内存失控
+- CLI 元数据失败默认只告警并保持 exit 0，新增 `--strict-metadata`；空 `--font` 返回用法错误
+- 状态 tooltip 限制宽度；主窗口去重选项改名为“折叠重复码点”
+
+- 用至少 4px 探测边带检测真实裁剪，`edgeGlyphs` 更名为 `clippedGlyphs`
 - 字体替换判定改为 `EnumFontFamiliesEx` 存在性检查，修复 `SimSun`/`宋体` 别名误报
 - 元数据写失败不再把已保存的字库报告为失败；`widen()` 对无效 UTF-8 不再抛异常
 - C 源码输出增加 64 MiB 上限；临时文件名加入进程 ID

@@ -54,6 +54,7 @@ struct EncodedGlyph {
 struct EncodeStats {
     std::size_t emptyGlyphs = 0;
     std::size_t clippedGlyphs = 0;
+    std::size_t overhangGlyphs = 0;
 };
 
 struct EncodedFont {

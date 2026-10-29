@@ -15,7 +15,8 @@ struct Glyph {
     int width = 0;
     int height = 0;
     int advance = 0;
-    bool clipped = false;
+    bool clipped = false;  // ink beyond the right/bottom edge
+    bool overhang = false; // ink beyond the left/top origin
     std::vector<std::uint8_t> coverage;
 
     [[nodiscard]] bool valid() const noexcept

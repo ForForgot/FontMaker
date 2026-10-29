@@ -56,6 +56,7 @@ struct Options {
     bool dedupe = false;
     bool filterControls = false;
     bool stats = false;
+    bool strictMetadata = false;
 };
 
 void printUsage()
@@ -83,9 +84,10 @@ void printUsage()
         << "  --dedupe            Remove duplicate code points\n"
         << "  --filter-controls   Remove C0/C1 control characters\n"
         << "  --metadata <file>   Write a JSON sidecar with font and payload info\n"
-        << "  --strict-font       Fail if GDI substitutes the requested font\n"
+        << "  --strict-metadata   Fail if the JSON sidecar cannot be written\n"
+        << "  --strict-font       Fail if the requested font family is missing\n"
         << "  --allow-empty       Allow an output with all glyphs empty\n"
-        << "  --stats             Print empty/edge glyph counts\n"
+        << "  --stats             Print empty/overflow/overhang glyph counts\n"
         << "  --bold              Use a bold font\n"
         << "  --italic            Use an italic font\n"
         << "  --list-fonts        List installed font families\n"
@@ -156,6 +158,8 @@ std::optional<Options> parseArguments(int argc, wchar_t** argv)
             options.stats = true;
         } else if (argument == L"--strict-font") {
             options.strictFont = true;
+        } else if (argument == L"--strict-metadata") {
+            options.strictMetadata = true;
         } else if (argument == L"--allow-empty") {
             options.allowEmpty = true;
         } else if (argument == L"--dedupe") {
@@ -324,6 +328,10 @@ int main()
             printUsage();
             return 2;
         }
+        if (parsed->font.family.empty()) {
+            std::cerr << "error: --font must not be empty\n";
+            return 2;
+        }
         if (!inRange(parsed->font.pixelHeight, kMinFontPixelHeight, kMaxFontPixelHeight)) {
             std::cerr << "error: --size must be in "
                       << kMinFontPixelHeight << ".." << kMaxFontPixelHeight << '\n';
@@ -406,47 +414,60 @@ int main()
         }
         if (font.stats.clippedGlyphs > 0) {
             std::cerr << "warning: " << font.stats.clippedGlyphs
-                      << " glyphs were clipped by the cell; increase width/height or adjust offsets\n";
+                      << " glyphs overflowed the cell; increase width/height or shift the glyph left/up\n";
         }
         if (parsed->stats) {
             std::cout << "stats: glyphs=" << allGlyphs
                       << " empty=" << font.stats.emptyGlyphs
-                      << " clipped=" << font.stats.clippedGlyphs << '\n';
+                      << " clipped=" << font.stats.clippedGlyphs
+                      << " overhang=" << font.stats.overhangGlyphs << '\n';
         }
 
         saveFont(parsed->outputPath, font, parsed->format, {parsed->arrayName});
 
+        std::string metadataError;
         if (!parsed->metadataPath.empty()) {
-            const auto binary = toBinary(font);
-            FontMetadata metadata;
-            metadata.generatorVersion = FONTMAKER_VERSION_A;
-            metadata.requestedFont = win32::narrow(parsed->font.family);
-            metadata.actualFont = win32::narrow(actualFamily);
-            metadata.fontPixelHeight = parsed->font.pixelHeight;
-            metadata.cellWidth = parsed->width;
-            metadata.cellHeight = parsed->height;
-            metadata.offsetX = parsed->offsetX;
-            metadata.offsetY = parsed->offsetY;
-            metadata.packing = parsed->packing;
-            metadata.glyphCount = font.glyphs.size();
-            metadata.emptyGlyphs = font.stats.emptyGlyphs;
-            metadata.clippedGlyphs = font.stats.clippedGlyphs;
-            metadata.recordSize = font.recordSize;
-            metadata.charsetSource = pathToUtf8(parsed->charsetPath);
-            metadata.outputFormat = parsed->format == OutputFormat::CSource ? "c" : "bin";
-            metadata.payloadSha256 = sha256Hex(binary);
+            try {
+                const auto binary = toBinary(font);
+                FontMetadata metadata;
+                metadata.generatorVersion = FONTMAKER_VERSION_A;
+                metadata.requestedFont = win32::narrow(parsed->font.family);
+                metadata.actualFont = win32::narrow(actualFamily);
+                metadata.fontPixelHeight = parsed->font.pixelHeight;
+                metadata.cellWidth = parsed->width;
+                metadata.cellHeight = parsed->height;
+                metadata.offsetX = parsed->offsetX;
+                metadata.offsetY = parsed->offsetY;
+                metadata.packing = parsed->packing;
+                metadata.glyphCount = font.glyphs.size();
+                metadata.emptyGlyphs = font.stats.emptyGlyphs;
+                metadata.clippedGlyphs = font.stats.clippedGlyphs;
+                metadata.overhangGlyphs = font.stats.overhangGlyphs;
+                metadata.recordSize = font.recordSize;
+                metadata.charsetSource = pathToUtf8(parsed->charsetPath);
+                metadata.outputFormat = parsed->format == OutputFormat::CSource ? "c" : "bin";
+                metadata.payloadSha256 = sha256Hex(binary);
 
-            const std::string json = toJson(metadata);
-            writeBinaryFile(parsed->metadataPath, std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t*>(json.data()), json.size()));
+                const std::string json = toJson(metadata);
+                writeBinaryFile(parsed->metadataPath, std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t*>(json.data()), json.size()));
+            } catch (const std::exception& error) {
+                metadataError = error.what();
+            }
         }
 
         std::cout << "wrote " << win32::narrow(parsed->outputPath.wstring()) << ": "
                   << font.glyphs.size() << " glyphs, " << font.recordSize << " bytes/glyph\n";
-        if (!parsed->metadataPath.empty()) {
-            std::cout << "metadata: " << win32::narrow(parsed->metadataPath.wstring()) << '\n';
+        if (metadataError.empty()) {
+            if (!parsed->metadataPath.empty()) {
+                std::cout << "metadata: " << win32::narrow(parsed->metadataPath.wstring()) << '\n';
+            }
+            return 0;
         }
-        return 0;
+
+        std::cerr << "warning: main output saved, but metadata failed: "
+                  << metadataError << '\n';
+        return parsed->strictMetadata ? 1 : 0;
     } catch (const std::exception& error) {
         std::cerr << "error: " << error.what() << '\n';
         return 1;

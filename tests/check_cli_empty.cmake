@@ -9,7 +9,7 @@ execute_process(
         --size 16
         --width 16
         --height 16
-        --offset-y 4000
+        --offset-y 100
         --charset "${CHARSET}"
         --output "${OUTPUT}"
         --format bin
